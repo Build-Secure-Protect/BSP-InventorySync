@@ -25,3 +25,7 @@ The jar lands in `build/libs/`. Headless tests: `./gradlew runGameTestServer`.
 ## Licence
 
 See `LICENSE`.
+
+## CurseForge
+
+`docs/curseforge/DESCRIPTION.md` and `docs/curseforge/CHANGELOG.md` are the project page texts; the images come from `python3 tools/gen_curseforge_images.py` (macOS Quick Look renders them) and are referenced by their raw GitHub URLs, so they must be committed.

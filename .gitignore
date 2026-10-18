@@ -1,0 +1,38 @@
+# eclipse
+bin
+*.launch
+.settings
+.metadata
+.classpath
+.project
+
+# idea
+out
+*.ipr
+*.iws
+*.iml
+.idea
+
+# gradle
+build/
+.gradle/
+
+# other
+eclipse
+run/
+libs/
+server/
+
+# Files from Forge MDK
+forge*changelog.txt
+
+# BSP-InventorySync
+src/generated/.cache
+.DS_Store
+mcmodsrepo
+
+# Claude files never go to GitHub (owner's rule): the project instructions and the Claude Code workspace folder
+CLAUDE.md
+**/CLAUDE.md
+.claude/
+.claude*

@@ -83,12 +83,14 @@ public final class Sync {
                         BspCore.storageSetting("STORAGE_DATABASE", String.class).orElse("bsp"),
                         BspCore.storageSetting("STORAGE_USER", String.class).orElse("bsp"),
                         BspCore.storageSetting("STORAGE_PASSWORD", String.class).orElse(""),
-                        BspCore.storageSetting("STORAGE_SSL", Boolean.class).orElse(false), prefix);
+                        BspCore.storageSetting("STORAGE_SSL", Boolean.class).orElse(false), prefix,
+                        "BSP-Core's bsp_core-server.toml, storage.useBspCoreDatabase = true");
             }
             BSPInventorySync.LOGGER.warn("BSP-InventorySync: BSP-Core's database settings could not be read; using this mod's own storage.* fields");
         }
         return new JdbcStore.Settings(SyncConfig.getOr(SyncConfig.DB_HOST, "localhost"), SyncConfig.getOr(SyncConfig.DB_PORT, 3306), SyncConfig.getOr(SyncConfig.DB_NAME, "bsp"),
-                SyncConfig.getOr(SyncConfig.DB_USER, "bsp"), SyncConfig.getOr(SyncConfig.DB_PASSWORD, ""), SyncConfig.getOr(SyncConfig.DB_SSL, false), prefix);
+                SyncConfig.getOr(SyncConfig.DB_USER, "bsp"), SyncConfig.getOr(SyncConfig.DB_PASSWORD, ""), SyncConfig.getOr(SyncConfig.DB_SSL, false), prefix,
+                "this mod's bsp_inventorysync-server.toml");
     }
 
     public static void stop() {

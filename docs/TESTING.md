@@ -72,3 +72,9 @@ Covered headlessly (5 GameTests, 40 in all). In game, as an operator:
 - [ ] `/invsync pin <you> <version>`, then log out and in 20 times: the pinned version is still listed.
 - [ ] `/invsync dump <you>` names a file under `world/bsp_inventorysync/dumps/` that opens as readable SNBT.
 - [ ] `/invsync reload` while online: the reply says you were adopted; a logout afterwards still saves (a new row).
+
+## 2026-10-18: first in-game run (owner), finding 1
+
+- Two backends (BSP-SafeRoom, BSP-Spawn), Redis connected, but `/invsync status` showed `mysql localhost:3306` with "Communications link failure" and the arrival ended "could not be loaded from the network": `storage.useBspCoreDatabase = true` took BSP-Core's database settings, which still pointed at localhost on those servers. Not a mod fault; the fallback behaved as designed. Fix: `useBspCoreDatabase = false` (own fields apply) or BSP-Core's `storage.host` set to the real database. The BSP-Spawn file also had a trailing space inside the password.
+- Change: the store description (start-up log line and `/invsync status`) now names where the database settings came from.
+- [ ] Redo: after the fix, `/invsync status` shows the real host, "settings from this mod's ..." and "store ping: ok"; then logout, switch, arrival carries the inventory.

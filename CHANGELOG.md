@@ -32,3 +32,4 @@ All notable changes to BSP-InventorySync are recorded here. The format follows [
 - GameTests for the auto-save, the advancements dirty flag and the watchdog against a store that never answers (35 in all).
 - `/invsync` for operators: `status`, `reload` (re-reads the config, reopens the stores, adopts the players online), `save <player>`, `resync <player>`, `dump <player>` (per-module sizes and the full SNBT written under `world/bsp_inventorysync/dumps/`), `snapshots <player>`, `restore <player> <version>`, `pin` and `unpin <player> <version>`.
 - GameTests for the actions and the command wiring (40 in all).
+- The start-up log line and `/invsync status` say where the database settings came from (BSP-Core's config or this mod's).

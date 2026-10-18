@@ -32,9 +32,14 @@ import java.util.concurrent.TimeUnit;
  * </ul>
  */
 public final class JdbcStore implements SyncStore {
-    public record Settings(String host, int port, String database, String user, String password, boolean ssl, String prefix) {
+    public record Settings(String host, int port, String database, String user, String password, boolean ssl, String prefix, String source) {
+        /** Settings without a named source (tests). */
+        public Settings(String host, int port, String database, String user, String password, boolean ssl, String prefix) {
+            this(host, port, database, user, password, ssl, prefix, "");
+        }
+
         public String describe() {
-            return "mysql " + host + ":" + port + "/" + database + " as " + user + ", tables " + prefix + "*";
+            return "mysql " + host + ":" + port + "/" + database + " as " + user + ", tables " + prefix + "*" + (source.isEmpty() ? "" : " (settings from " + source + ")");
         }
     }
 

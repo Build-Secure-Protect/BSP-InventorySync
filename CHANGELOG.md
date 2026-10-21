@@ -35,7 +35,8 @@ All notable changes to BSP-InventorySync are recorded here. The format follows [
 - The start-up log line and `/invsync status` say where the database settings came from (BSP-Core's config or this mod's).
 
 ### Changed
-- Compiled against BSP-Core 1.4.0 (`bsp_core_version`); any BSP-Core from 1.1.0 on is still accepted.
+- Compiled against BSP-Core 1.4.1 (`bsp_core_version`); any BSP-Core from 1.1.0 on is still accepted.
+- With BSP-Core 1.4.1 or later the totem rule and the totem hand-back use BSP-Core's api (`BspTotems.isTotem(ItemStack)`, `BspTotems.giveBack(ServerPlayer, ItemStack)`); the start-up log says "totem rule via api, hand-back via api". Older BSP-Core versions keep using its internal methods as before. A restore into a full inventory keeps every totem the player holds; BSP-Core drops the stack each one displaces at the player's feet (GameTest `a_restore_into_a_full_inventory_keeps_every_totem_and_drops_what_they_displace`).
 
 ### Fixed
 - An item tossed while the player's data is still arriving (Q, or thrown from the cursor) is no longer deleted. Forge 47.4.10 had already taken the stack out of the inventory and spawns nothing for a cancelled toss, so `sync/Freeze` now puts the stack back into the inventory and cancels only when all of it fit; what does not fit drops on the ground as a normal toss (request SU-IS1 from BSP-Server Utilities). GameTest `a_frozen_player_who_tosses_an_item_gets_it_back_and_a_full_inventory_drops_the_rest`.

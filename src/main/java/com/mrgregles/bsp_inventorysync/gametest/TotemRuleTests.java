@@ -18,10 +18,13 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -180,6 +183,41 @@ public class TotemRuleTests {
         h.assertTrue(BspCore.isLiveTotem(inv.getItem(2)), "the totem went to the restored hand slot (BSP-Core's giveBack rule), inventory: " + inv.getItem(0) + ", " + inv.getItem(2));
         h.assertTrue(inv.getItem(0).is(Items.DIRT), "the snapshot's dirt is back in slot 0");
         h.assertTrue(liveTotems(p) == 1, "no duplicate");
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_restore_into_a_full_inventory_keeps_every_totem_and_drops_what_they_displace(GameTestHelper h) {
+        ServerPlayer p = TestPlayers.mockServerPlayer(h);
+        Vec3 start = h.absoluteVec(new Vec3(1.5, 2, 1.5));
+        p.moveTo(start.x, start.y, start.z, 0, 0);
+        AABB around = new AABB(start, start).inflate(4);
+        SyncService sync = new SyncService(h.getLevel().getServer(), new MemoryStore(), HUB);
+        Inventory inv = p.getInventory();
+        for (int i = 0; i < inv.items.size(); i++) {
+            inv.setItem(i, new ItemStack(Items.COBBLESTONE, 64));
+        }
+        inv.selected = 0;
+        Snapshot saved = sync.save(p, SaveCause.LOGOUT).join();
+
+        inv.clearContent();
+        Item item = totem(h).getItem();
+        ItemStack bare = new ItemStack(item); // no identity yet: BSP-Core counts it as live
+        h.assertTrue(BspCore.isLiveTotem(bare), "a totem without an identity is live: " + BspCore.sources());
+        inv.setItem(0, totem(h));
+        inv.setItem(1, bare);
+        try {
+            SyncService.Restored restored = sync.restore(p, saved, false);
+            h.assertTrue(restored.totemsKept() == 2, "both totems kept: " + restored);
+            h.assertTrue(liveTotems(p) == 2, "both totems are still with the player, got " + liveTotems(p));
+            h.assertTrue(inv.countItem(Items.COBBLESTONE) == 34 * 64, "two stacks made room for them: " + inv.countItem(Items.COBBLESTONE));
+            List<ItemEntity> dropped = h.getLevel().getEntitiesOfClass(ItemEntity.class, around);
+            int droppedCobble = dropped.stream().filter(e -> e.getItem().is(Items.COBBLESTONE)).mapToInt(e -> e.getItem().getCount()).sum();
+            h.assertTrue(droppedCobble == 2 * 64, "the displaced stacks are on the ground, nothing lost: " + dropped);
+            h.assertTrue(dropped.stream().noneMatch(e -> e.getItem().is(item)), "no totem was dropped: " + dropped);
+        } finally {
+            h.getLevel().getEntitiesOfClass(ItemEntity.class, around).forEach(ItemEntity::discard);
+        }
         h.succeed();
     }
 

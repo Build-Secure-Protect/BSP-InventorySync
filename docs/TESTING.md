@@ -86,3 +86,10 @@ Covered headlessly (1 GameTest, 41 in all): a frozen player who tosses a stack g
 - [ ] Press Q (and Ctrl+Q) on a hotbar item: the item stays in the inventory, nothing lands on the ground, the client shows the right count.
 - [ ] Open the inventory, pick up a stack on the cursor, click outside the window: the stack goes back into the inventory.
 - [ ] With every inventory slot full, throw a stack from the cursor: what fits goes back, the rest lands on the ground and can be picked up once the freeze ends. Nothing is lost.
+
+## 2026-10-21: BSP-Core 1.4.1, the totem api
+
+Covered headlessly (1 new GameTest, 42 in all; also run against BSP-Core 1.3.0 to check the fallback). On a server with BSP-Core 1.4.1 and `storage.mode = "mysql"`:
+
+- [ ] The start-up log says "BSP-Core totem rule via api, hand-back via api". On a server still on an older BSP-Core it says "via internal", and syncing works the same.
+- [ ] Fill every inventory slot, then switch servers carrying a Shatter Totem (BSP-Teleport): on arrival the totem is in the inventory, and one stack it displaced lies at your feet and can be picked up once the freeze ends.

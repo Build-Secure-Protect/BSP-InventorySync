@@ -33,3 +33,9 @@ All notable changes to BSP-InventorySync are recorded here. The format follows [
 - `/invsync` for operators: `status`, `reload` (re-reads the config, reopens the stores, adopts the players online), `save <player>`, `resync <player>`, `dump <player>` (per-module sizes and the full SNBT written under `world/bsp_inventorysync/dumps/`), `snapshots <player>`, `restore <player> <version>`, `pin` and `unpin <player> <version>`.
 - GameTests for the actions and the command wiring (40 in all).
 - The start-up log line and `/invsync status` say where the database settings came from (BSP-Core's config or this mod's).
+
+### Changed
+- Compiled against BSP-Core 1.4.0 (`bsp_core_version`); any BSP-Core from 1.1.0 on is still accepted.
+
+### Fixed
+- An item tossed while the player's data is still arriving (Q, or thrown from the cursor) is no longer deleted. Forge 47.4.10 had already taken the stack out of the inventory and spawns nothing for a cancelled toss, so `sync/Freeze` now puts the stack back into the inventory and cancels only when all of it fit; what does not fit drops on the ground as a normal toss (request SU-IS1 from BSP-Server Utilities). GameTest `a_frozen_player_who_tosses_an_item_gets_it_back_and_a_full_inventory_drops_the_rest`.

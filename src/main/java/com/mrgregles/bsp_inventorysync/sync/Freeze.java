@@ -2,6 +2,7 @@ package com.mrgregles.bsp_inventorysync.sync;
 
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.entity.item.ItemTossEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.player.AttackEntityEvent;
@@ -48,10 +49,19 @@ public final class Freeze {
         }
     }
 
+    /**
+     * By the time the event fires the stack has already left the inventory (or the cursor), and a
+     * cancelled toss spawns nothing, so the item goes back into the inventory here and the toss is
+     * cancelled only when all of it fit; what does not fit is dropped as usual and never lost.
+     */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onToss(ItemTossEvent event) {
         if (frozen(event.getPlayer())) {
-            event.setCanceled(true); // Forge puts the item back
+            ItemStack stack = event.getEntity().getItem();
+            event.getPlayer().getInventory().add(stack);
+            if (stack.isEmpty()) {
+                event.setCanceled(true);
+            }
         }
     }
 

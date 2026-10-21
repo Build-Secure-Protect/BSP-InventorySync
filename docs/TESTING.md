@@ -78,3 +78,11 @@ Covered headlessly (5 GameTests, 40 in all). In game, as an operator:
 - Two backends (BSP-SafeRoom, BSP-Spawn), Redis connected, but `/invsync status` showed `mysql localhost:3306` with "Communications link failure" and the arrival ended "could not be loaded from the network": `storage.useBspCoreDatabase = true` took BSP-Core's database settings, which still pointed at localhost on those servers. Not a mod fault; the fallback behaved as designed. Fix: `useBspCoreDatabase = false` (own fields apply) or BSP-Core's `storage.host` set to the real database. The BSP-Spawn file also had a trailing space inside the password.
 - Change: the store description (start-up log line and `/invsync status`) now names where the database settings came from.
 - [ ] Redo: after the fix, `/invsync status` shows the real host, "settings from this mod's ..." and "store ping: ok"; then logout, switch, arrival carries the inventory.
+
+## 2026-10-21: SU-IS1 a tossed item comes back while syncing
+
+Covered headlessly (1 GameTest, 41 in all): a frozen player who tosses a stack gets it back, and with a full inventory only the part that does not fit drops. In game, on a backend with `storage.mode = "mysql"`, while the "syncing" freeze is on (easiest by raising `arrival.timeoutSeconds` to 60 and setting the player's `online` back to 1 for another server in `bsp_is_players` just before logging in, so the arrival waits):
+
+- [ ] Press Q (and Ctrl+Q) on a hotbar item: the item stays in the inventory, nothing lands on the ground, the client shows the right count.
+- [ ] Open the inventory, pick up a stack on the cursor, click outside the window: the stack goes back into the inventory.
+- [ ] With every inventory slot full, throw a stack from the cursor: what fits goes back, the rest lands on the ground and can be picked up once the freeze ends. Nothing is lost.

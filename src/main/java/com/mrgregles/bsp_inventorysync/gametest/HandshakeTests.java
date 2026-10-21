@@ -18,6 +18,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
@@ -158,6 +159,45 @@ public class HandshakeTests {
         LivingAttackEvent hurtLater = new LivingAttackEvent(q, q.damageSources().generic(), 4f);
         MinecraftForge.EVENT_BUS.post(hurtLater);
         h.assertTrue(!hurtLater.isCanceled(), "damage is allowed again once settled");
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_frozen_player_who_tosses_an_item_gets_it_back_and_a_full_inventory_drops_the_rest(GameTestHelper h) {
+        MinecraftServer server = h.getLevel().getServer();
+        MemoryStore store = new MemoryStore();
+        SyncService pvp = new SyncService(server, store, PVP, FAST);
+        UUID id = UUID.randomUUID();
+        store.setPresence(id, HUB, true).join(); // hub still holds the player, so they stay frozen on pvp
+        ServerPlayer q = TestPlayers.mockServerPlayer(h, id);
+        Vec3 start = h.absoluteVec(new Vec3(1.5, 2, 1.5));
+        q.moveTo(start.x, start.y, start.z, 0, 0);
+        AABB around = new AABB(start, start).inflate(4);
+        pvp.onLogin(q, 0);
+        pvp.tick(0);
+        h.assertTrue(SyncService.isSyncing(id), "frozen while hub holds the player");
+        try {
+            // Q (the whole stack) on a hotbar slot: the stack has left the inventory before the event
+            q.getInventory().selected = 0;
+            q.getInventory().setItem(0, new ItemStack(Items.DIAMOND, 5));
+            q.drop(true);
+            h.assertTrue(q.getInventory().countItem(Items.DIAMOND) == 5, "a tossed stack comes back: " + q.getInventory().countItem(Items.DIAMOND));
+            h.assertTrue(h.getLevel().getEntitiesOfClass(ItemEntity.class, around).isEmpty(), "and nothing is dropped");
+
+            // thrown from the cursor into a full inventory: what fits comes back, the rest drops as a normal toss
+            for (int i = 0; i < 35; i++) {
+                q.getInventory().setItem(i, new ItemStack(Items.COBBLESTONE, 64));
+            }
+            q.getInventory().setItem(35, new ItemStack(Items.EMERALD, 62));
+            q.drop(new ItemStack(Items.EMERALD, 5), true);
+            h.assertTrue(q.getInventory().countItem(Items.EMERALD) == 64, "two fit back: " + q.getInventory().countItem(Items.EMERALD));
+            List<ItemEntity> dropped = h.getLevel().getEntitiesOfClass(ItemEntity.class, around);
+            h.assertTrue(dropped.size() == 1 && dropped.get(0).getItem().is(Items.EMERALD) && dropped.get(0).getItem().getCount() == 3, "the other three are on the ground: " + dropped);
+        } finally {
+            h.getLevel().getEntitiesOfClass(ItemEntity.class, around).forEach(ItemEntity::discard);
+            pvp.onLogout(q).join();
+        }
+        h.assertTrue(!SyncService.isSyncing(id), "no longer frozen after leaving");
         h.succeed();
     }
 

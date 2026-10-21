@@ -110,3 +110,11 @@ Covered headlessly (1 new GameTest, 44 in all): a player who arrives dead, with 
 - [ ] On server B, die and log out on the death screen (B keeps you dead in its own player file). Join server A (you arrive alive there), then teleport to B carrying a Shatter Totem (BSP-Teleport), so B owes you the totem.
 - [ ] Arrive on B: the death screen shows. Wait more than 30 s, then respawn: your inventory from A is there, the totem is in it once, nothing lies where you died, and BSP-Core's log has no "No inventory restore for ..." warning.
 - [ ] Same without the wait (respawn at once): the same result.
+
+## 2026-10-21: BSP-Core 1.4.2, a totem into a full inventory (R5)
+
+Covered headlessly (1 new GameTest, 45 in all): a full inventory arrives from another server while BSP-Core holds a transferred totem for the player and this server's ledger remembers an older instance of it; after the restore the totem is in the inventory once, live, recorded as arrived, and one cobblestone stack lies at the player's feet. The same test fails on BSP-Core 1.4.1 (the totem is dropped; with a free slot it is spent by BSP-Core's identity check). On two servers with BSP-Core 1.4.2 on both:
+
+- [ ] Fill every inventory slot and teleport to the other server carrying a Shatter Totem (BSP-Teleport): on arrival the totem is in the inventory, one stack lies at your feet, nothing else is missing.
+- [ ] Use or place the totem afterwards: it still works (no "spent" message, not a husk).
+- [ ] Same with free slots: the totem arrives and still works.

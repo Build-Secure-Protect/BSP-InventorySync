@@ -13,6 +13,7 @@ import com.mrgregles.bsp_inventorysync.sync.Sync;
 import com.mrgregles.bsp_inventorysync.sync.SyncEvents;
 import com.mrgregles.bsp_inventorysync.sync.SyncService;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.MinecraftServer;
@@ -347,6 +348,94 @@ public class HandshakeTests {
             }
             h.succeed();
         });
+    }
+
+    /** A static method of BSP-Core by reflection, private ones too (older versions keep some private); null when absent. */
+    @Nullable
+    private static Method bspCoreMethod(String className, String name, Class<?>... types) {
+        try {
+            Method m = Class.forName(className).getDeclaredMethod(name, types);
+            m.setAccessible(true);
+            return m;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_full_inventory_switch_gets_the_owed_totem_by_bsp_cores_totem_route_and_it_stays_live(GameTestHelper h) throws ReflectiveOperationException {
+        MinecraftServer server = h.getLevel().getServer();
+        Method hold = loginSettle("hold", ServerPlayer.class, int.class);
+        Method waiting = loginSettle("isWaiting", UUID.class);
+        Method ledgerOf = bspCoreMethod("com.mrgregles.bsp_core.data.TotemLedger", "get", MinecraftServer.class);
+        Method track = bspCoreMethod("com.mrgregles.bsp_core.event.TotemRestrictionHandler", "trackIdentity", ServerPlayer.class);
+        Map<UUID, List<ItemStack>> owed = owedItems(server);
+        if (hold == null || waiting == null || ledgerOf == null || track == null || owed == null) {
+            h.succeed(); // a BSP-Core without the login wait or the ledger: nothing of BSP-Core's to check
+            return;
+        }
+        Object ledger = ledgerOf.invoke(null, server);
+        Method seen = ledger.getClass().getMethod("seen", UUID.class, UUID.class, UUID.class, int.class, CompoundTag.class, long.class);
+        Method currentInstance = ledger.getClass().getMethod("currentInstance", UUID.class);
+        Method forget = ledger.getClass().getMethod("forget", UUID.class);
+
+        MemoryStore store = new MemoryStore();
+        SyncService hub = new SyncService(server, store, HUB, FAST);
+        SyncService pvp = new SyncService(server, store, PVP, FAST);
+        UUID id = UUID.randomUUID();
+        ItemStack[] full = new ItemStack[36];
+        for (int i = 0; i < full.length; i++) {
+            full[i] = new ItemStack(Items.COBBLESTONE, 64);
+        }
+        hub.onLogout(settled(h, hub, id, 0, full)).join(); // hub saves a full inventory and releases the player
+
+        // the totem left hub with the transfer; pvp's ledger still remembers an older instance of it
+        UUID totemId = UUID.randomUUID();
+        UUID older = UUID.randomUUID();
+        UUID travelling = UUID.randomUUID();
+        seen.invoke(ledger, totemId, older, UUID.randomUUID(), 0, null, server.overworld().getGameTime());
+        ItemStack totem = TotemRuleTests.totem(h);
+        totem.getOrCreateTag().putUUID("TotemId", totemId);
+        totem.getOrCreateTag().putUUID("Instance", travelling);
+        owed.computeIfAbsent(id, k -> new ArrayList<>()).add(totem.copy()); // parked for the player while they wait (R3)
+
+        ServerPlayer q = TestPlayers.mockServerPlayer(h, id);
+        Vec3 start = h.absoluteVec(new Vec3(1.5, 2, 1.5));
+        q.moveTo(start.x, start.y, start.z, 0, 0);
+        AABB around = new AABB(start, start).inflate(4);
+        try {
+            call(hold, q, 600); // BSP-Core's login listener
+            pvp.onLogin(q, 0);
+            pvp.tick(0); // hub has released: arrive, restore the full inventory, post the event, BSP-Core settles
+            h.assertTrue(!SyncService.isSyncing(id) && !(boolean) call(waiting, id), "restored and settled");
+            track.invoke(null, q); // BSP-Core's identity check, as on the player's next tick
+
+            int found = 0;
+            int cobbleHeld = 0;
+            for (int i = 0; i < q.getInventory().getContainerSize(); i++) {
+                ItemStack s = q.getInventory().getItem(i);
+                if (s.hasTag() && s.getTag().hasUUID("TotemId") && s.getTag().getUUID("TotemId").equals(totemId)) {
+                    found++;
+                    h.assertTrue(BspCore.isLiveTotem(s) && s.getTag().getUUID("Instance").equals(travelling), "the owed totem is live, the instance that travelled: " + s.getTag());
+                }
+                if (s.is(Items.COBBLESTONE)) {
+                    cobbleHeld += s.getCount();
+                }
+            }
+            h.assertTrue(found == 1, "the owed totem is in the full inventory exactly once: " + found);
+            h.assertTrue(travelling.equals(currentInstance.invoke(ledger, totemId)), "the ledger recorded its arrival: " + currentInstance.invoke(ledger, totemId));
+            h.assertTrue(owed.getOrDefault(id, List.of()).isEmpty(), "and it is no longer owed");
+            List<ItemEntity> dropped = h.getLevel().getEntitiesOfClass(ItemEntity.class, around);
+            h.assertTrue(dropped.stream().noneMatch(e -> e.getItem().getItem() == totem.getItem()), "no totem on the ground: " + dropped);
+            int cobbleDropped = dropped.stream().filter(e -> e.getItem().is(Items.COBBLESTONE)).mapToInt(e -> e.getItem().getCount()).sum();
+            h.assertTrue(cobbleDropped >= 64 && cobbleHeld + cobbleDropped == 36 * 64, "a displaced stack is at their feet and nothing is lost: held " + cobbleHeld + ", dropped " + cobbleDropped);
+        } finally {
+            h.getLevel().getEntitiesOfClass(ItemEntity.class, around).forEach(ItemEntity::discard);
+            owed.remove(id);
+            forget.invoke(ledger, totemId);
+            pvp.onLogout(q).join();
+        }
+        h.succeed();
     }
 
     @GameTest(template = EMPTY)

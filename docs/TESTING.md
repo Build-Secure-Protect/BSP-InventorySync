@@ -93,3 +93,20 @@ Covered headlessly (1 new GameTest, 42 in all; also run against BSP-Core 1.3.0 t
 
 - [ ] The start-up log says "BSP-Core totem rule via api, hand-back via api". On a server still on an older BSP-Core it says "via internal", and syncing works the same.
 - [ ] Fill every inventory slot, then switch servers carrying a Shatter Totem (BSP-Teleport): on arrival the totem is in the inventory, and one stack it displaced lies at your feet and can be picked up once the freeze ends.
+
+## 2026-10-21: BSP-Core 1.4.1, the restore event gates coins, the season check and owed items (R3)
+
+Covered headlessly (1 new GameTest, 43 in all). Install BSP-Core 1.4.1 (slim jar on Mohist) next to this mod, then:
+
+- [ ] BSP-Core's start-up log says "Coins, the season check and owed items wait for BSP-InventorySync's restore event at login".
+- [ ] Switch servers with an item owed to you in BSP-Core (a pending item or a totem stored by the transfer): it arrives once, after your inventory is restored, and is still there after a relog. No "No inventory restore for ... within storage.restoreWaitSeconds" warning in BSP-Core's log.
+- [ ] On a server with this mod installed but `storage.mode = "off"`: log in with an owed item; it is handed over at once (no 30 s wait, no warning).
+- [ ] After a full season reset, log in on another server with old-season coins: they are stripped after the restore, not before (so they do not come back with the restored inventory).
+
+## 2026-10-21: BSP-Core 1.4.1, dead arrivals (R4)
+
+Covered headlessly (1 new GameTest, 44 in all): a player who arrives dead, with a totem owed by BSP-Core, stays on the death screen past BSP-Core's wait; nothing is settled on the dead entity; after the respawn the restore lands and the owed totem arrives exactly once. On two servers with BSP-Core 1.4.1:
+
+- [ ] On server B, die and log out on the death screen (B keeps you dead in its own player file). Join server A (you arrive alive there), then teleport to B carrying a Shatter Totem (BSP-Teleport), so B owes you the totem.
+- [ ] Arrive on B: the death screen shows. Wait more than 30 s, then respawn: your inventory from A is there, the totem is in it once, nothing lies where you died, and BSP-Core's log has no "No inventory restore for ..." warning.
+- [ ] Same without the wait (respawn at once): the same result.

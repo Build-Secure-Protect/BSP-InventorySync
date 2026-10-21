@@ -2,12 +2,15 @@ package com.mrgregles.bsp_inventorysync.gametest;
 
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
 import com.mrgregles.bsp_inventorysync.api.event.InventoryRestoredEvent;
+import com.mrgregles.bsp_inventorysync.compat.BspCore;
 import com.mrgregles.bsp_inventorysync.storage.MemoryStore;
 import com.mrgregles.bsp_inventorysync.storage.Presence;
 import com.mrgregles.bsp_inventorysync.storage.SaveCause;
 import com.mrgregles.bsp_inventorysync.storage.Snapshot;
 import com.mrgregles.bsp_inventorysync.sync.Arrival;
 import com.mrgregles.bsp_inventorysync.sync.ArrivalPolicy;
+import com.mrgregles.bsp_inventorysync.sync.Sync;
+import com.mrgregles.bsp_inventorysync.sync.SyncEvents;
 import com.mrgregles.bsp_inventorysync.sync.SyncService;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
@@ -24,13 +27,17 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.player.EntityItemPickupEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import javax.annotation.Nullable;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -199,6 +206,147 @@ public class HandshakeTests {
         }
         h.assertTrue(!SyncService.isSyncing(id), "no longer frozen after leaving");
         h.succeed();
+    }
+
+    /** BSP-Core's login wait (request R3), by reflection so the test still runs against a BSP-Core without it. */
+    @Nullable
+    private static Method loginSettle(String name, Class<?>... types) {
+        try {
+            return Class.forName("com.mrgregles.bsp_core.admin.LoginSettle").getMethod(name, types);
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
+    }
+
+    @GameTest(template = EMPTY)
+    public static void bsp_core_settles_a_login_on_the_one_restore_event_with_the_sync_on_or_off(GameTestHelper h) throws ReflectiveOperationException {
+        MinecraftServer server = h.getLevel().getServer();
+        Method hold = loginSettle("hold", ServerPlayer.class, int.class);
+        Method waiting = loginSettle("isWaiting", UUID.class);
+        Restores restores = new Restores();
+        MinecraftForge.EVENT_BUS.register(restores);
+        try {
+            // the sync is off in the dev run: a login still posts one version-0 event, so BSP-Core settles at once
+            h.assertTrue(Sync.active() == null, "the sync is off in the dev run");
+            ServerPlayer off = TestPlayers.mockServerPlayer(h);
+            if (hold != null) {
+                hold.invoke(null, off, 600); // as BSP-Core's own login listener does
+            }
+            SyncEvents.onLogin(new PlayerEvent.PlayerLoggedInEvent(off));
+            h.assertTrue(restores.events.size() == 1 && restores.events.get(0).getEntity() == off && restores.events.get(0).getVersion() == 0, "one version-0 event with the sync off: " + restores.events);
+            if (waiting != null) {
+                h.assertTrue(!(boolean) waiting.invoke(null, off.getUUID()), "BSP-Core settled the login at once");
+            }
+
+            // the sync on: BSP-Core waits while the player is frozen and settles on the arrival's event
+            MemoryStore store = new MemoryStore();
+            SyncService pvp = new SyncService(server, store, PVP, FAST);
+            UUID id = UUID.randomUUID();
+            store.setPresence(id, HUB, true).join();
+            ServerPlayer q = TestPlayers.mockServerPlayer(h, id);
+            if (hold != null) {
+                hold.invoke(null, q, 600);
+            }
+            pvp.onLogin(q, 0);
+            pvp.tick(0);
+            h.assertTrue(SyncService.isSyncing(id) && restores.events.size() == 1, "frozen, no event yet");
+            if (waiting != null) {
+                h.assertTrue((boolean) waiting.invoke(null, id), "BSP-Core still waits while the player is frozen");
+            }
+            store.setPresence(id, HUB, false).join(); // hub releases the player
+            pvp.tick(50);
+            h.assertTrue(!SyncService.isSyncing(id) && restores.events.size() == 2 && restores.events.get(1).getEntity() == q, "one event for the arrival: " + restores.events);
+            if (waiting != null) {
+                h.assertTrue(!(boolean) waiting.invoke(null, id), "BSP-Core settled the login on it");
+            }
+            pvp.onLogout(q).join();
+        } finally {
+            MinecraftForge.EVENT_BUS.unregister(restores);
+        }
+        h.succeed();
+    }
+
+    private static Object call(@Nullable Method m, Object... args) {
+        try {
+            return m == null ? null : m.invoke(null, args);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** BSP-Core's owed items for a player (its season data), by reflection; null without BSP-Core's class. */
+    @Nullable
+    @SuppressWarnings("unchecked")
+    private static Map<UUID, List<ItemStack>> owedItems(MinecraftServer server) {
+        try {
+            Object season = Class.forName("com.mrgregles.bsp_core.admin.SeasonData").getMethod("get", MinecraftServer.class).invoke(null, server);
+            return (Map<UUID, List<ItemStack>>) season.getClass().getField("pendingItems").get(season);
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 100)
+    public static void a_dead_arrival_past_bsp_cores_wait_gets_its_data_and_owed_totem_after_the_respawn(GameTestHelper h) {
+        MinecraftServer server = h.getLevel().getServer();
+        Method hold = loginSettle("hold", ServerPlayer.class, int.class);
+        Method waiting = loginSettle("isWaiting", UUID.class);
+        Map<UUID, List<ItemStack>> owed = owedItems(server);
+        if (hold == null || waiting == null || owed == null) {
+            h.succeed(); // a BSP-Core without the login wait (before 1.4.1): nothing of BSP-Core's to check
+            return;
+        }
+        MemoryStore store = new MemoryStore();
+        SyncService hub = new SyncService(server, store, HUB, FAST);
+        SyncService pvp = new SyncService(server, store, PVP, FAST);
+        UUID id = UUID.randomUUID();
+        hub.onLogout(settled(h, hub, id, 0, new ItemStack(Items.DIAMOND_PICKAXE))).join(); // saved and released by hub
+
+        ItemStack totem = TotemRuleTests.totem(h);
+        UUID instance = totem.getTag().getUUID("Instance");
+        owed.computeIfAbsent(id, k -> new ArrayList<>()).add(totem.copy()); // BSP-Core owes them a totem (a transfer's hand-back)
+
+        ServerPlayer dead = TestPlayers.mockServerPlayer(h, id);
+        dead.setHealth(0f); // they left on the death screen last time
+        call(hold, dead, 5); // BSP-Core's login listener, with a 5-tick wait
+        pvp.onLogin(dead, 100);
+        pvp.tick(100);
+        h.assertTrue(SyncService.isSyncing(id), "the dead arrival waits for the respawn");
+
+        Restores restores = new Restores();
+        MinecraftForge.EVENT_BUS.register(restores);
+        h.runAfterDelay(20, () -> {
+            try {
+                // four times BSP-Core's wait has passed on the death screen: nothing settled, nothing handed to the corpse
+                h.assertTrue((boolean) call(waiting, id), "BSP-Core still waits: its countdown stands still while the player is dead");
+                h.assertTrue(owed.getOrDefault(id, List.of()).size() == 1, "the totem is still owed, not given to the dead entity");
+                h.assertTrue(TotemRuleTests.liveTotems(dead) == 0 && dead.getInventory().getItem(0).isEmpty(), "the dead entity got nothing");
+
+                // the respawn: BSP-Core's listener (normal priority) restarts its wait on the new entity, then ours (LOWEST) restores
+                ServerPlayer alive = TestPlayers.mockServerPlayer(h, id);
+                MinecraftForge.EVENT_BUS.post(new PlayerEvent.PlayerRespawnEvent(alive, false));
+                h.assertTrue((boolean) call(waiting, id), "still waiting at the respawn, for the restore");
+                pvp.onRespawn(alive, false, 2_000);
+                h.assertTrue(!SyncService.isSyncing(id) && alive.getInventory().getItem(0).is(Items.DIAMOND_PICKAXE), "the data went to the respawned player");
+                List<InventoryRestoredEvent> mine = restores.events.stream().filter(e -> e.getEntity().getUUID().equals(id)).toList(); // other tests run meanwhile
+                h.assertTrue(mine.size() == 1 && mine.get(0).getEntity() == alive, "one restore event, for the living entity: " + mine.size());
+                h.assertTrue(!(boolean) call(waiting, id), "BSP-Core settled on that event");
+                int found = 0;
+                for (int i = 0; i < alive.getInventory().getContainerSize(); i++) {
+                    ItemStack s = alive.getInventory().getItem(i);
+                    if (BspCore.isLiveTotem(s) && s.hasTag() && s.getTag().hasUUID("Instance") && s.getTag().getUUID("Instance").equals(instance)) {
+                        found++;
+                    }
+                }
+                h.assertTrue(found == 1, "the owed totem arrived once, in the respawned player's inventory: " + found);
+                h.assertTrue(owed.getOrDefault(id, List.of()).isEmpty(), "and is no longer owed");
+                pvp.onLogout(alive).join();
+            } finally {
+                MinecraftForge.EVENT_BUS.unregister(restores);
+                owed.remove(id);
+            }
+            h.succeed();
+        });
     }
 
     @GameTest(template = EMPTY)

@@ -11,7 +11,7 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.level.LevelEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
-import net.minecraftforge.event.server.ServerStoppingEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -32,8 +32,13 @@ public final class SyncEvents {
         Sync.start(event.getServer());
     }
 
+    /**
+     * Forge fires {@code ServerStoppingEvent} before Minecraft logs the players out, so stopping there
+     * would close the store before their logout saves. Stopped comes after the logouts (and after a
+     * crash's), and waits for their saves to land.
+     */
     @SubscribeEvent
-    public static void onServerStopping(ServerStoppingEvent event) {
+    public static void onServerStopped(ServerStoppedEvent event) {
         Sync.stop();
     }
 

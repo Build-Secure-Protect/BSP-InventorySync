@@ -20,7 +20,7 @@ There is nothing to learn. When you switch servers you are held still for a mome
 - Ender chest.
 - Experience, level progress and score.
 - Health, hunger, saturation, air and potion effects.
-- Game mode, flight and your respawn point.
+- Game mode and flight. Your respawn point (bed or anchor) stays with each server, since each has its own world.
 - Advancements, without earning their rewards twice.
 - Curios slots, Sophisticated Backpacks contents (including backpacks inside backpacks), Dank Storage contents, the waystones you know, Mekanism radiation, and any other mod's per-player data.
 
@@ -32,7 +32,7 @@ Your Shatter Totem, which BSP-Core carries its own way (see below); statistics a
 
 ![Missing items](https://raw.githubusercontent.com/Build-Secure-Protect/BSP-InventorySync/main/docs/curseforge/images/missing-items.png)
 
-If you arrive on a server that does not have one of your items' mods, the item becomes a sheet of paper named after it. Nothing is lost: the paper keeps all the original data and turns back into the item on a server that has the mod.
+If you arrive on a server that does not have one of your items' mods, the item becomes a barrier named after it. It cannot be crafted, traded or placed, so nothing is lost: the barrier keeps all the original data and turns back into the item on a server that has the mod.
 
 ---
 

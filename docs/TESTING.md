@@ -118,3 +118,40 @@ Covered headlessly (1 new GameTest, 45 in all): a full inventory arrives from an
 - [ ] Fill every inventory slot and teleport to the other server carrying a Shatter Totem (BSP-Teleport): on arrival the totem is in the inventory, one stack lies at your feet, nothing else is missing.
 - [ ] Use or place the totem afterwards: it still works (no "spent" message, not a husk).
 - [ ] Same with free slots: the totem arrives and still works.
+
+## 2026-10-23: performance and safety check
+
+Covered headlessly by 12 new GameTests (`gametest/SafetyTests`, 58 in all). Two fixes cannot be tested headlessly (the server stop and the action-bar text); they come first. All on two backends with `storage.mode = "mysql"` (Redis on where noted), both on this build.
+
+- [ ] **Restart with players online.** Put an item in your inventory, wait under a minute (no auto-save yet), `/stop` the server. Join the other server: the item is there. `/invsync snapshots <you>` shows a `logout` snapshot taken at the stop. The log has no "store closed" errors at shutdown.
+- [ ] **Cursor at logout.** Open your inventory, pick up a stack on the cursor, and disconnect (or teleport to the other server). On arrival the stack is in your inventory; back on the first server, nothing lies where you stood.
+- [ ] **Crafting grid at logout.** Put items in the 2x2 crafting grid and disconnect: they arrive in your inventory. With a completely full inventory, they lie where you stood on the first server and are not in your inventory on the second (one place only).
+- [ ] **Frozen arrival.** With the source slow to release (raise `arrival.timeoutSeconds` to 60 and set your `online` to 1 for the other server in `bsp_is_players` before joining): after a second the action bar says "Loading your items..." every second; a command (for example `/spawn`) answers "Your items are still loading. Try again in a moment." and does nothing; items put into the 2x2 grid are gone once your items load.
+- [ ] **Unreadable data.** Stop MySQL and join: you are disconnected with "Your items could not be loaded from the network. Nothing was changed: please rejoin in a minute." Start MySQL and join: your items are as before (no newer snapshot was written while it was down).
+- [ ] **Database outage.** Stop MySQL for a minute while playing, then start it: the log shows the connection failure once and then "waiting before the next try" lines at most every few seconds, not a flood; saves work again within 15 s of MySQL coming back.
+- [ ] **Redis.** With Redis on, stop Redis, play a little, switch server, start Redis, and switch back within ten minutes: you arrive with your latest items, not the ones from before Redis stopped. If the cache was stale the log says "the cached snapshot of ... was vN but the database has vM".
+- [ ] **Quick relog.** Disconnect and rejoin the same server at once, several times, moving an item each time: the item is always where you left it.
+- [ ] **World save.** Stand still for 15 minutes: `/invsync snapshots <you>` shows no new `world_save` rows while nothing changed.
+- [ ] **Totem in the ender chest.** Put a Shatter Totem in your ender chest and relog at once (before BSP-Core moves it out): the totem is in your inventory, not gone.
+- [ ] **Backpacks.** Wear a Sophisticated Backpack in the Curios back slot, and put another inside a shulker box; switch server: both open with their contents.
+- [ ] **Health.** With gear that raises maximum health (for example +10 hearts), switch server at full health: you arrive at full health a moment later, not capped at 10 hearts.
+- [ ] **Admin rollback.** `/invsync restore <you> <older version>`: the reply ends "saved as vN"; switch server at once: you arrive with the rolled-back items.
+- [ ] **Mixed mods** (needs three servers). With a mod missing on B only (for example Curios): change a curio on A, go to B, then to C: C shows the curio as you left it on A, not C's older copy.
+
+## 2026-10-23: D16-1 the respawn point stays per server
+
+Covered headlessly (the data-module round trip now checks that the snapshot carries no respawn point and that an older snapshot's is ignored; 58 in all). On two backends:
+
+- [ ] Sleep in a bed on A, switch to B, die on B: you respawn at B's world spawn (or B's own bed), with no "You have no home bed" for A's bed.
+- [ ] Back on A, die: you respawn at A's bed, which is still set.
+- [ ] Sleep in a bed on B too, then switch back and forth: each server keeps its own bed.
+
+## 2026-10-23: D14-1 the placeholder is a barrier
+
+Covered headlessly (the placeholder round trip now expects a barrier with two lore lines and checks that an old paper placeholder still saves as its item; a new GameTest checks that placing or using a placeholder is refused while clicking a block still works, and that a real barrier is left alone; 59 in all). On two backends, with a mod (any item mod) installed on A only:
+
+- [ ] Carry an item of that mod from A to B: on B it is a barrier named "Missing item: <id>" in red italic, with the two grey lore lines.
+- [ ] On B, right-click the air and a block with it: nothing is placed, the action bar says "This is a placeholder for a missing mod's item."; right-clicking a chest with it in hand still opens the chest.
+- [ ] In a crafting grid it makes nothing, in a furnace it does not smelt or burn, and no villager trade takes it; it can be dropped, stored in a chest and picked up again.
+- [ ] Back on A: it is the original item again, with all its data.
+- [ ] An old paper placeholder (from before this build), carried to a server without the mod, becomes a barrier there; on a server with the mod it is the original item.

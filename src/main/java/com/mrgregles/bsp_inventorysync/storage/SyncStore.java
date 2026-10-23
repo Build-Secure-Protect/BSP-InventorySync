@@ -30,6 +30,14 @@ public interface SyncStore {
     /** The newest snapshot of the player, if any. */
     CompletableFuture<Optional<Snapshot>> latest(UUID player);
 
+    /**
+     * The newest snapshot's version, 0 when there is none: what {@link #latest} would return, without its
+     * data. The Redis cache checks its copy against it.
+     */
+    default CompletableFuture<Long> latestVersion(UUID player) {
+        return latest(player).thenApply(s -> s.map(Snapshot::version).orElse(0L));
+    }
+
     /** One snapshot by version. */
     CompletableFuture<Optional<Snapshot>> snapshot(UUID player, long version);
 
@@ -48,7 +56,10 @@ public interface SyncStore {
     /** Where the player is, if the store has ever heard of them. */
     CompletableFuture<Optional<Presence>> presence(UUID player);
 
-    /** Marks the player online or offline on {@code serverId}, now. */
+    /**
+     * Marks the player online on {@code serverId}, now; or offline, but only while {@code serverId} is the
+     * server recorded as holding them (a late release never undoes another server's checkout).
+     */
     CompletableFuture<Void> setPresence(UUID player, String serverId, boolean online);
 
     /** Marks offline every player recorded online on {@code serverId} (server start and stop). Returns how many. */

@@ -15,9 +15,14 @@ import net.minecraftforge.registries.ForgeRegistries;
 /**
  * Item stacks to and from NBT, with the rule for items the server does not know (D8): an item whose
  * id is not registered here (its mod is missing, or an older version lacks it) becomes a placeholder,
- * a named sheet of paper carrying the original compound in the tag {@value #ORIGINAL}. When a
- * placeholder is saved again, the original compound is written instead, so the item comes back the
- * moment it lands on a server that has its mod. Placeholders stack only with themselves.
+ * a named barrier carrying the original compound in the tag {@value #ORIGINAL}. When a placeholder
+ * is saved again, the original compound is written instead, so the item comes back the moment it
+ * lands on a server that has its mod. Placeholders stack only with themselves.
+ *
+ * <p>The base item is a barrier (D14): no recipe, villager trade, furnace or composter uses it, so the
+ * original cannot be crafted or traded away, and its icon reads as "not usable here". Placing it is
+ * blocked by {@link PlaceholderGuard}. Placeholders made before D14 are paper; they are recognised by
+ * their tag like any other and become barriers at their next restore on a server without the mod.
  */
 public final class ItemCodec {
     /** The placeholder's tag holding the original item compound. */
@@ -30,7 +35,7 @@ public final class ItemCodec {
         CompoundTag tag = stack.getTag();
         if (tag != null && tag.contains(ORIGINAL, CompoundTag.TAG_COMPOUND)) {
             CompoundTag original = tag.getCompound(ORIGINAL).copy();
-            original.putByte("Count", (byte) stack.getCount()); // the stack may have been split or merged while it was paper
+            original.putByte("Count", (byte) stack.getCount()); // the stack may have been split or merged while it was a placeholder
             return original;
         }
         return stack.save(new CompoundTag());
@@ -57,14 +62,15 @@ public final class ItemCodec {
 
     private static ItemStack placeholder(CompoundTag original) {
         int count = Math.max(1, original.getByte("Count"));
-        ItemStack paper = new ItemStack(Items.PAPER, count);
-        CompoundTag tag = paper.getOrCreateTag();
+        ItemStack placeholder = new ItemStack(Items.BARRIER, count);
+        CompoundTag tag = placeholder.getOrCreateTag();
         tag.put(ORIGINAL, original.copy());
         String id = original.getString("id");
-        paper.setHoverName(Component.literal("Missing item: " + id).withStyle(ChatFormatting.RED, ChatFormatting.ITALIC));
+        placeholder.setHoverName(Component.literal("Missing item: " + id).withStyle(ChatFormatting.RED, ChatFormatting.ITALIC));
         ListTag lore = new ListTag();
-        lore.add(StringTag.valueOf(Component.Serializer.toJson(Component.literal("Comes back when its mod is installed").withStyle(ChatFormatting.GRAY))));
+        lore.add(StringTag.valueOf(Component.Serializer.toJson(Component.literal("Turns back into the item on a server with its mod.").withStyle(ChatFormatting.GRAY))));
+        lore.add(StringTag.valueOf(Component.Serializer.toJson(Component.literal("Keep it: it is the real item.").withStyle(ChatFormatting.GRAY))));
         tag.getCompound("display").put("Lore", lore);
-        return paper;
+        return placeholder;
     }
 }

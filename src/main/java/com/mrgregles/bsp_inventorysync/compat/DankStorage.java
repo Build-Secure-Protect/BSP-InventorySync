@@ -14,7 +14,9 @@ import net.minecraftforge.fml.ModList;
 
 import javax.annotation.Nullable;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -31,6 +33,7 @@ public final class DankStorage {
 
     @Nullable private static final Class<?> DANK_ITEM;
     @Nullable private static final Method GET_FREQUENCY;
+    @Nullable private static final Method SET_FREQUENCY;
     @Nullable private static final Method GET_BAG_INVENTORY;
     @Nullable private static final Method ASSIGN_NEXT_ID;
     @Nullable private static final Method SAVE;
@@ -42,6 +45,7 @@ public final class DankStorage {
         Class<?> utils = Reflect.type("tfar.dankstorage.utils.CommonUtils");
         Class<?> inventory = Reflect.type("tfar.dankstorage.inventory.DankInterface");
         GET_FREQUENCY = Reflect.method(utils, "getFrequency", ItemStack.class);
+        SET_FREQUENCY = Reflect.method(utils, "setFrequency", ItemStack.class, int.class);
         GET_BAG_INVENTORY = Reflect.method(utils, "getBagInventory", ItemStack.class, Level.class);
         ASSIGN_NEXT_ID = Reflect.method(DANK_ITEM, "assignNextId", ItemStack.class);
         SAVE = Reflect.method(inventory, "save");
@@ -111,7 +115,7 @@ public final class DankStorage {
                 if (saved instanceof CompoundTag c) {
                     CompoundTag entry = new CompoundTag();
                     entry.putInt(FREQUENCY, e.getKey());
-                    entry.put(CONTENTS, c);
+                    entry.put(CONTENTS, c.copy()); // a copy: the snapshot is compressed off the server thread
                     danks.add(entry);
                 }
             }
@@ -132,32 +136,36 @@ public final class DankStorage {
             boolean remap = ctx != null && ctx.fromAnotherServer();
             Map<Integer, Integer> newFrequencies = new HashMap<>(); // source frequency -> frequency given here (one per dank, shared by copies)
             int restored = 0;
+            List<ItemStack> stacks = new ArrayList<>();
             for (Container container : new Container[] {player.getInventory(), player.getEnderChestInventory()}) {
                 for (int i = 0; i < container.getContainerSize(); i++) {
-                    ItemStack s = container.getItem(i);
-                    if (!isDank(s)) {
-                        continue;
+                    stacks.add(container.getItem(i));
+                }
+            }
+            stacks.add(player.containerMenu.getCarried()); // the cursor too, as save() reads it
+            for (ItemStack s : stacks) {
+                if (!isDank(s)) {
+                    continue;
+                }
+                int f = frequency(s);
+                CompoundTag contents = byFrequency.get(f);
+                if (contents == null) {
+                    continue;
+                }
+                if (remap) {
+                    Integer given = newFrequencies.get(f);
+                    if (given == null) {
+                        Reflect.call(ASSIGN_NEXT_ID, null, s);
+                        given = frequency(s);
+                        newFrequencies.put(f, given);
+                    } else {
+                        Reflect.call(SET_FREQUENCY, null, s, given);
                     }
-                    int f = frequency(s);
-                    CompoundTag contents = byFrequency.get(f);
-                    if (contents == null) {
-                        continue;
-                    }
-                    if (remap) {
-                        Integer given = newFrequencies.get(f);
-                        if (given == null) {
-                            Reflect.call(ASSIGN_NEXT_ID, null, s);
-                            given = frequency(s);
-                            newFrequencies.put(f, given);
-                        } else {
-                            Reflect.call(Reflect.method(Reflect.type("tfar.dankstorage.utils.CommonUtils"), "setFrequency", ItemStack.class, int.class), null, s, given);
-                        }
-                    }
-                    Object inv = Reflect.call(GET_BAG_INVENTORY, null, s, player.level());
-                    if (inv != null) {
-                        Reflect.call(READ, inv, contents.copy());
-                        restored++;
-                    }
+                }
+                Object inv = Reflect.call(GET_BAG_INVENTORY, null, s, player.level());
+                if (inv != null) {
+                    Reflect.call(READ, inv, contents.copy());
+                    restored++;
                 }
             }
             if (restored > 0) {

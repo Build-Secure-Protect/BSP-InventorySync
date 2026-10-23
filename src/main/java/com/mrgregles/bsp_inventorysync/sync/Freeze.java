@@ -1,8 +1,11 @@
 package com.mrgregles.bsp_inventorysync.sync;
 
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraftforge.event.CommandEvent;
 import net.minecraftforge.event.entity.item.ItemTossEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.player.AttackEntityEvent;
@@ -62,6 +65,18 @@ public final class Freeze {
             if (stack.isEmpty()) {
                 event.setCanceled(true);
             }
+        }
+    }
+
+    /**
+     * A command run now would act on the stale copy (a bank deposit takes coins that the restore then
+     * puts back), so commands wait too. The freeze normally lasts a few milliseconds.
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onCommand(CommandEvent event) {
+        if (event.getParseResults().getContext().getSource().getEntity() instanceof ServerPlayer player && SyncService.isSyncing(player.getUUID())) {
+            event.setCanceled(true);
+            player.displayClientMessage(Component.literal("Your items are still loading. Try again in a moment.").withStyle(ChatFormatting.GOLD), false);
         }
     }
 

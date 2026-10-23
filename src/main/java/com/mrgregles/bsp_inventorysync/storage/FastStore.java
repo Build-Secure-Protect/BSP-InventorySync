@@ -108,11 +108,28 @@ public final class FastStore implements SyncStore {
                         .thenCompose(f -> f));
     }
 
+    /**
+     * The cached copy, when it is still the newest. A save whose cache write and delete both failed (Redis
+     * was down at that moment) leaves an older copy behind for up to the cache's lifetime; served as
+     * latest, it would hand back items the player has since dropped or stored. So the copy is checked
+     * against the database's newest version (a key lookup, no data) and used only when it is that version.
+     * When the database cannot answer, the copy is all there is and is used.
+     */
     @Override
     public CompletableFuture<Optional<Snapshot>> latest(UUID player) {
+        CompletableFuture<Long> newest = inner.latestVersion(player);
         return quiet(redis.get(snapshotKey(player))).thenCompose(raw -> {
             Optional<Snapshot> cached = decode(player, raw);
-            return cached.isPresent() ? CompletableFuture.completedFuture(cached) : inner.latest(player);
+            if (cached.isEmpty()) {
+                return inner.latest(player);
+            }
+            return newest.handle((version, error) -> {
+                if (error != null || cached.get().version() >= version) {
+                    return CompletableFuture.completedFuture(cached);
+                }
+                BSPInventorySync.LOGGER.warn("BSP-InventorySync: the cached snapshot of {} was v{} but the database has v{}; using the database", player, cached.get().version(), version);
+                return quiet(redis.del(snapshotKey(player))).thenCompose(x -> inner.latest(player));
+            }).thenCompose(f -> f);
         });
     }
 
@@ -173,10 +190,31 @@ public final class FastStore implements SyncStore {
     @Override
     public CompletableFuture<Void> setPresence(UUID player, String serverId, boolean online) {
         long now = System.currentTimeMillis();
-        CompletableFuture<Void> fast = quiet(redis.set(presenceKey(player), encodePresence(online, serverId, now), 0))
-                .thenCompose(v -> quiet(online ? redis.sadd(heldKey(serverId), player.toString()) : redis.srem(heldKey(serverId), player.toString())))
-                .thenApply(v -> null);
+        CompletableFuture<Void> fast;
+        if (online) {
+            fast = quiet(redis.set(presenceKey(player), encodePresence(true, serverId, now), 0))
+                    .thenCompose(v -> quiet(redis.sadd(heldKey(serverId), player.toString())))
+                    .thenApply(v -> null);
+        } else {
+            fast = releaseIfHeld(player, serverId, now).thenCompose(v -> quiet(redis.srem(heldKey(serverId), player.toString()))).thenApply(v -> null);
+        }
         return inner.setPresence(player, serverId, online).thenCombine(fast, (a, b) -> null);
+    }
+
+    /**
+     * Marks the player offline in Redis only while Redis still says {@code serverId} holds them, as the
+     * database does: a release that comes late (a slow save, a server restarting after a crash) must not
+     * undo another server's checkout. The read and the write are two commands, so a checkout landing
+     * between them can still be overwritten; the database row stays right either way.
+     */
+    private CompletableFuture<Void> releaseIfHeld(UUID player, String serverId, long now) {
+        return quiet(redis.get(presenceKey(player))).thenCompose(raw -> {
+            Optional<Presence> current = decodePresence(player, raw);
+            if (current.isPresent() && !current.get().serverId().equals(serverId)) {
+                return CompletableFuture.completedFuture(null);
+            }
+            return quiet(redis.set(presenceKey(player), encodePresence(false, serverId, now), 0)).thenApply(v -> null);
+        });
     }
 
     @Override
@@ -186,7 +224,13 @@ public final class FastStore implements SyncStore {
             CompletableFuture<?> all = CompletableFuture.completedFuture(null);
             if (members != null) {
                 for (String m : members) {
-                    all = all.thenCompose(x -> quiet(redis.set(prefix + "presence:" + m, encodePresence(false, serverId, now), 0)));
+                    UUID player;
+                    try {
+                        player = UUID.fromString(m);
+                    } catch (IllegalArgumentException e) {
+                        continue;
+                    }
+                    all = all.thenCompose(x -> releaseIfHeld(player, serverId, now));
                 }
             }
             return all.thenCompose(x -> quiet(redis.del(heldKey(serverId)))).thenApply(x -> null);

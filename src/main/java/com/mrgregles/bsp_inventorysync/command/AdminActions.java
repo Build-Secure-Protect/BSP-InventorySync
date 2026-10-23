@@ -180,8 +180,11 @@ public final class AdminActions {
                         return;
                     }
                     var r = service.restore(player, found.get(), false);
-                    out.complete(List.of("rolled " + player.getGameProfile().getName() + " back to v" + r.version() + " (" + found.get().cause().id() + " from " + r.sourceServer() + ")"
-                            + (r.modules().failed().isEmpty() ? "" : "; failed modules: " + r.modules().failed())));
+                    String rolled = "rolled " + player.getGameProfile().getName() + " back to v" + r.version() + " (" + found.get().cause().id() + " from " + r.sourceServer() + ")"
+                            + (r.modules().failed().isEmpty() ? "" : "; failed modules: " + r.modules().failed());
+                    // saved at once as the newest snapshot, so a switch, stop or crash before their next save keeps the rollback
+                    service.save(player, com.mrgregles.bsp_inventorysync.storage.SaveCause.ADMIN).whenComplete((saved, error) -> out.complete(List.of(
+                            rolled + (error != null ? "; NOT saved yet (" + error.getMessage() + "): it will be lost if they switch server before their next save" : "; saved as v" + saved.version()))));
                 } catch (Throwable t) {
                     out.complete(List.of("restore failed: " + t));
                 }

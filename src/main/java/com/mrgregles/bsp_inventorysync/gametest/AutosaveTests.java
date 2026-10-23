@@ -166,7 +166,8 @@ public class AutosaveTests {
         h.assertTrue(error instanceof TimeoutException && tookMs < 2_000, "the save was cut off by the watchdog in " + tookMs + " ms: " + error);
         h.assertTrue(frozen.storeTimeouts() == 1, "one timeout counted, got " + frozen.storeTimeouts());
 
-        // an arrival: the presence polls time out, the arrival times out, the take-over times out, the player is unfrozen anyway
+        // an arrival: it waits for this server's own save of the player (never answered), times out, the take-over times out,
+        // and the player is refused (never left frozen, and nothing of this server's stale copy is saved)
         frozen.onLogin(p, System.currentTimeMillis());
         h.startSequence()
                 .thenWaitUntil(() -> {
@@ -178,7 +179,7 @@ public class AutosaveTests {
                     h.assertTrue(a.outcome() == Arrival.Outcome.UNAVAILABLE, "the store never answered: " + a);
                     h.assertTrue(a.waitedMs() >= 600, "waited out the arrival timeout: " + a);
                     h.assertTrue(p.getInventory().getItem(0).is(Items.BREAD), "the player keeps what this server had");
-                    h.assertTrue(frozen.storeTimeouts() >= 3, "presence polls and the take-over were cut off: " + frozen.storeTimeouts());
+                    h.assertTrue(frozen.storeTimeouts() >= 2, "the save and the take-over were cut off (the arrival waits for this server's own save of the player instead of polling): " + frozen.storeTimeouts());
                 })
                 .thenSucceed();
     }

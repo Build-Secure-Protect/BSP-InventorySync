@@ -3,6 +3,7 @@ package com.mrgregles.bsp_inventorysync.data;
 import com.mrgregles.bsp_inventorysync.api.DataModule;
 
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
+import com.mrgregles.bsp_inventorysync.data.vanilla.ForgeDataModule;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
@@ -10,6 +11,7 @@ import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
 
+import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -102,6 +104,35 @@ public final class PlayerSnapshotCodec {
             }
         }
         return new Result(List.copyOf(applied), List.copyOf(failed), List.copyOf(missing));
+    }
+
+    /**
+     * Copies into {@code current} what this server could not capture but {@code previous} (the snapshot last
+     * saved or restored here) holds: whole modules that are not registered here or failed this time, and the
+     * capabilities of mods missing here inside the Forge module. Returns {@code current}.
+     */
+    public static CompoundTag carryForward(CompoundTag current, @Nullable CompoundTag previous) {
+        if (previous == null) {
+            return current;
+        }
+        CompoundTag before = previous.getCompound(KEY_MODULES);
+        CompoundTag now = current.getCompound(KEY_MODULES);
+        for (String id : before.getAllKeys()) {
+            if (!now.contains(id, Tag.TAG_COMPOUND)) {
+                now.put(id, before.getCompound(id).copy());
+            }
+        }
+        CompoundTag capsBefore = before.getCompound(ForgeDataModule.ID).getCompound(ForgeDataModule.CAPS);
+        if (!capsBefore.isEmpty() && now.getCompound(ForgeDataModule.ID).contains(ForgeDataModule.CAPS, Tag.TAG_COMPOUND)) {
+            CompoundTag capsNow = now.getCompound(ForgeDataModule.ID).getCompound(ForgeDataModule.CAPS);
+            for (String cap : capsBefore.getAllKeys()) {
+                if (!capsNow.contains(cap)) {
+                    capsNow.put(cap, capsBefore.get(cap).copy());
+                }
+            }
+        }
+        current.put(KEY_MODULES, now);
+        return current;
     }
 
     /** The module ids that failed when the snapshot was taken. */

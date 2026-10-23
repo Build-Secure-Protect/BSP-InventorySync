@@ -40,6 +40,11 @@ public final class VitalsModule implements DataModule {
         out.put(EFFECTS, effects);
     }
 
+    /** The health a vitals compound holds, or -1 when there is none (or no compound). */
+    public static float savedHealth(@javax.annotation.Nullable CompoundTag module) {
+        return module != null && module.contains(HEALTH, Tag.TAG_FLOAT) ? module.getFloat(HEALTH) : -1f;
+    }
+
     @Override
     public void load(ServerPlayer player, CompoundTag in) {
         if (in.contains(FOOD, Tag.TAG_COMPOUND)) {

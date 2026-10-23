@@ -10,6 +10,8 @@ import com.mrgregles.bsp_inventorysync.storage.SyncStore;
 import net.minecraft.server.MinecraftServer;
 
 import javax.annotation.Nullable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * The one {@link SyncService} of this server, or none when the server syncs nothing (D10: no shared
@@ -19,6 +21,7 @@ import javax.annotation.Nullable;
  */
 public final class Sync {
     @Nullable private static volatile SyncService active;
+    @Nullable private static volatile ExecutorService codecThread;
 
     private Sync() {}
 
@@ -64,6 +67,12 @@ public final class Sync {
         }
         ArrivalPolicy policy = new ArrivalPolicy(SyncConfig.getOr(SyncConfig.ARRIVAL_TIMEOUT_SECONDS, 10) * 1000L, SyncConfig.getOr(SyncConfig.KICK_ON_TIMEOUT, false));
         SyncService service = new SyncService(server, store, serverId, policy);
+        codecThread = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "bsp-inventorysync-codec");
+            t.setDaemon(true);
+            return t;
+        });
+        service.setCodecExecutor(codecThread);
         service.setSnapshotsKept(SyncConfig.getOr(SyncConfig.SNAPSHOTS_KEPT, 16));
         service.setAutosaveMs(SyncConfig.getOr(SyncConfig.AUTOSAVE_SECONDS, 60) * 1000L);
         service.setStoreTimeoutMs(SyncConfig.getOr(SyncConfig.STORE_TIMEOUT_SECONDS, 5) * 1000L);
@@ -93,13 +102,23 @@ public final class Sync {
                 "this mod's bsp_inventorysync-server.toml");
     }
 
+    /**
+     * Stops the sync: waits (bounded) for the saves in flight, releases this server's players and closes
+     * the store. On a server stop this runs at {@code ServerStoppedEvent}, after Minecraft has logged
+     * everyone out, so each of those logouts has saved first.
+     */
     public static void stop() {
         SyncService service = active;
         if (service == null) {
             return;
         }
         active = null;
-        service.shutdown(5_000);
+        service.shutdown(10_000);
+        ExecutorService codec = codecThread;
+        codecThread = null;
+        if (codec != null) {
+            codec.shutdown();
+        }
     }
 
     /**
@@ -108,6 +127,11 @@ public final class Sync {
      * their logout saves and releases as usual. Returns one line for the operator.
      */
     public static String reload(MinecraftServer server) {
+        SyncService running = active;
+        if (running != null && running.waiting() > 0) {
+            // a reload would unfreeze them on this server's stale copy and save it as theirs
+            return "not reloaded: " + running.waiting() + " player(s) are still waiting for their data; try again in a moment";
+        }
         stop();
         start(server);
         SyncService service = active;

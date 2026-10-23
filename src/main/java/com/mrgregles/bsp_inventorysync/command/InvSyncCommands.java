@@ -85,7 +85,7 @@ public final class InvSyncCommands {
     private static int withService(CommandContext<CommandSourceStack> ctx, Function<SyncService, CompletableFuture<List<String>>> action) {
         SyncService s = Sync.active();
         if (s == null) {
-            reply(ctx.getSource(), List.of("inventory sync is off on this server (storage.mode is not mysql)"), false);
+            reply(ctx.getSource(), List.of("inventory sync is off on this server: storage.mode is not \"mysql\", or it could not start (see the server log)"), false);
             return 0;
         }
         replyLater(ctx.getSource(), action.apply(s));
@@ -107,6 +107,9 @@ public final class InvSyncCommands {
             ServerPlayer player = ctx.getSource().getServer().getPlayerList().getPlayer(profile.getId());
             if (player == null) {
                 return CompletableFuture.completedFuture(List.of(profile.getName() + " is not online here"));
+            }
+            if (SyncService.isSyncing(player.getUUID())) {
+                return CompletableFuture.completedFuture(List.of(profile.getName() + "'s data is still arriving; try again in a moment"));
             }
             return action.apply(s, player);
         });

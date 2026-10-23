@@ -95,16 +95,31 @@ public final class SophisticatedBackpacks {
         }
 
         /** The backpacks the player carries, including those nested in other backpacks. */
+        /**
+         * Every backpack the player carries: in the inventory, on the cursor, in the ender chest and in a
+         * Curios slot (the back slot), each looked for through the whole item tag, so a backpack inside a
+         * shulker box or another container item is found too.
+         */
         public static Set<UUID> carried(ServerPlayer player) {
             Set<UUID> uuids = new LinkedHashSet<>();
             for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
-                contentsUuid(player.getInventory().getItem(i)).ifPresent(uuids::add);
+                scan(player.getInventory().getItem(i), uuids);
             }
-            contentsUuid(player.containerMenu.getCarried()).ifPresent(uuids::add);
+            scan(player.containerMenu.getCarried(), uuids);
             for (int i = 0; i < player.getEnderChestInventory().getContainerSize(); i++) {
-                contentsUuid(player.getEnderChestInventory().getItem(i)).ifPresent(uuids::add);
+                scan(player.getEnderChestInventory().getItem(i), uuids);
+            }
+            Tag curios = Curios.tag(player);
+            if (curios != null) {
+                collectUuids(curios, uuids);
             }
             return uuids;
+        }
+
+        private static void scan(ItemStack stack, Set<UUID> out) {
+            if (!stack.isEmpty() && stack.hasTag()) {
+                collectUuids(stack.getTag(), out);
+            }
         }
 
         @Override

@@ -42,6 +42,17 @@ public final class Curios {
         return ModList.get().isLoaded(MOD_ID) && GET_INVENTORY != null && WRITE_TAG != null && READ_TAG != null;
     }
 
+    /** The player's Curios slots as Curios saves them, or null when Curios is absent or has nothing; for other adapters to look through. */
+    @Nullable
+    public static Tag tag(ServerPlayer player) {
+        if (!present()) {
+            return null;
+        }
+        Object h = handler(player);
+        Object tag = h == null ? null : Reflect.call(WRITE_TAG, h);
+        return tag instanceof Tag t ? t : null;
+    }
+
     @Nullable
     static Object handler(ServerPlayer player) {
         Object lazy = Reflect.call(GET_INVENTORY, null, player);
@@ -70,7 +81,7 @@ public final class Curios {
             }
             Object tag = Reflect.call(WRITE_TAG, h);
             if (tag instanceof Tag t) {
-                out.put(TAG, t);
+                out.put(TAG, t.copy()); // a copy: the snapshot is compressed off the server thread
             }
         }
 

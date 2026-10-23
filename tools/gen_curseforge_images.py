@@ -154,9 +154,9 @@ def travels():
     s.text(40, 48, "What travels with you", 30, TEXT, "bold")
     s.text(40, 78, "Everything a player owns or is, from vanilla and from the pack's mods. A few things stay put on purpose.", 16, MUTED)
     cols = [
-        (40, "Vanilla", ACCENT, ["Inventory, armour, offhand", "Selected slot and cursor item", "Ender chest", "Experience and score", "Health, hunger, saturation, air", "Potion effects", "Game mode and flight", "Respawn point (bed or anchor)", "Advancements"]),
+        (40, "Vanilla", ACCENT, ["Inventory, armour, offhand", "Selected slot and cursor item", "Ender chest", "Experience and score", "Health, hunger, saturation, air", "Potion effects", "Game mode and flight", "Advancements"]),
         (420, "Mods", VIOLET, ["Curios slots (rings, elytra slot, jetpack)", "Sophisticated Backpacks contents", "Dank Storage contents", "Waystones you know", "Mekanism radiation", "Starter Kit's \"kit given\" flag", "Any mod's persistent player data", "Any mod's player capabilities", "Item NBT: Apotheosis, Botania, Tinkers..."]),
-        (800, "Stays on each server", BAD, ["Shatter Totems (BSP-Core carries them)", "Statistics", "Recipe book", "BSP-Core's last-position markers", "Anything you list in the config", "", "Items from a mod a server lacks become", "a named sheet of paper, and turn back", "into the item where the mod exists."]),
+        (800, "Stays on each server", BAD, ["Shatter Totems (BSP-Core carries them)", "Statistics", "Recipe book", "Respawn point (bed or anchor)", "BSP-Core's last-position markers", "Anything you list in the config", "Items from a mod a server lacks become", "a named barrier, and turn back", "into the item where the mod exists."]),
     ]
     for x, title, color, lines in cols:
         s.panel(x, 110, 360, 500, title, color)
@@ -256,13 +256,14 @@ def totem():
 def missing():
     s = Svg(1200, 380)
     s.text(40, 48, "Items from a mod a server lacks", 30, TEXT, "bold")
-    s.text(40, 78, "Nothing is thrown away. The item becomes a named sheet of paper that keeps the original data, and turns back into the item on a server that has the mod.", 16, MUTED)
+    s.text(40, 78, "Nothing is thrown away. The item becomes a named barrier that keeps the original data, and turns back into the item on a server that has the mod.", 16, MUTED)
     # tooltip mock
     s.rect(80, 130, 460, 150, "#100010f0", "#28007B", r=4)
     s.rect(84, 134, 452, 142, "none", "#5000FF", r=3, sw=1.5)
     s.text(104, 172, "Missing item: mekanism:meka_tool", 20, BAD, "normal", style="italic")
-    s.text(104, 204, "Comes back when its mod is installed", 16, MUTED)
-    s.text(104, 250, "minecraft:paper", 14, "#555566", family=MONO)
+    s.text(104, 204, "Turns back into the item on a server with its mod.", 16, MUTED)
+    s.text(104, 228, "Keep it: it is the real item.", 16, MUTED)
+    s.text(104, 262, "minecraft:barrier", 14, "#555566", family=MONO)
     s.arrow(560, 205, 660, 205, ACCENT, 3)
     s.text(610, 190, "server with the mod", 13, MUTED, "normal", "middle")
     s.rect(680, 130, 460, 150, "#100010f0", "#28007B", r=4)
@@ -270,7 +271,7 @@ def missing():
     s.text(704, 172, "Meka-Tool", 20, TEXT)
     s.text(704, 204, "Energy: 1.2 MFE / 1.2 MFE", 16, ACCENT)
     s.text(704, 232, "all original NBT kept", 14, MUTED, style="italic")
-    s.text(600, 340, "The paper stacks only with itself and keeps its count; splitting it keeps the data on every sheet.", 15, MUTED, "normal", "middle")
+    s.text(600, 340, "It cannot be crafted, traded or placed; it stacks only with itself and keeps its count when split.", 15, MUTED, "normal", "middle")
     s.save("missing-items")
 
 

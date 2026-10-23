@@ -1,30 +1,24 @@
 package com.mrgregles.bsp_inventorysync.data.vanilla;
 
 import com.mrgregles.bsp_inventorysync.api.DataModule;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.GameType;
-import net.minecraft.world.level.Level;
 
 /**
- * Game mode, abilities (flight and the rest, as vanilla saves them) and the respawn point (bed or
- * anchor: dimension, position, angle, forced). The game mode is applied first because changing it
- * resets the abilities.
+ * Game mode and abilities (flight and the rest, as vanilla saves them). The game mode is applied first
+ * because changing it resets the abilities.
+ *
+ * <p>The respawn point (bed or anchor) is not synced (D16): each server has its own world, so a bed on
+ * one is nowhere on another, and a point applied there would be cleared at the next death and that
+ * cleared point carried back. Each server keeps the point the player set in its own world, in its own
+ * player file, as vanilla does. A {@code Respawn} entry in a snapshot taken before D16 is ignored.
  */
 public final class GameModule implements DataModule {
     public static final String ID = "game";
     private static final String GAME_MODE = "GameMode";
     private static final String ABILITIES = "Abilities";
-    private static final String RESPAWN = "Respawn";
-    private static final String DIM = "Dim";
-    private static final String POS = "Pos";
-    private static final String ANGLE = "Angle";
-    private static final String FORCED = "Forced";
 
     @Override
     public String id() {
@@ -37,15 +31,6 @@ public final class GameModule implements DataModule {
         CompoundTag abilities = new CompoundTag();
         player.getAbilities().addSaveData(abilities);
         out.put(ABILITIES, abilities);
-        BlockPos pos = player.getRespawnPosition();
-        if (pos != null) {
-            CompoundTag respawn = new CompoundTag();
-            respawn.putString(DIM, player.getRespawnDimension().location().toString());
-            respawn.putLong(POS, pos.asLong());
-            respawn.putFloat(ANGLE, player.getRespawnAngle());
-            respawn.putBoolean(FORCED, player.isRespawnForced());
-            out.put(RESPAWN, respawn);
-        }
     }
 
     @Override
@@ -56,14 +41,6 @@ public final class GameModule implements DataModule {
         if (in.contains(ABILITIES, Tag.TAG_COMPOUND)) {
             player.getAbilities().loadSaveData(in.getCompound(ABILITIES));
             player.onUpdateAbilities();
-        }
-        if (in.contains(RESPAWN, Tag.TAG_COMPOUND)) {
-            CompoundTag respawn = in.getCompound(RESPAWN);
-            ResourceLocation dim = ResourceLocation.tryParse(respawn.getString(DIM));
-            ResourceKey<Level> key = dim == null ? Level.OVERWORLD : ResourceKey.create(Registries.DIMENSION, dim);
-            player.setRespawnPosition(key, BlockPos.of(respawn.getLong(POS)), respawn.getFloat(ANGLE), respawn.getBoolean(FORCED), false);
-        } else {
-            player.setRespawnPosition(Level.OVERWORLD, null, 0f, false, false);
         }
     }
 }

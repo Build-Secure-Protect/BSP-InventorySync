@@ -13,13 +13,13 @@ Your inventory and everything about your character follow you when you move betw
 - Ender chest.
 - Experience, level progress and score.
 - Health, absorption, air, hunger, saturation and active potion effects.
-- Game mode, flight and the respawn point (bed or anchor).
+- Game mode and flight. The respawn point (bed or anchor) stays per server, since each has its own world.
 - Advancements, without granting their rewards a second time.
 - Every mod's per-player data: persistent NBT and player capabilities, so mods such as Waystones, Starter Kit, Mekanism (radiation) and Compact Machines need no special support. A config list excludes what must stay on one server.
 - Curios slots (rings, elytra slot, jetpacks and the like) through Curios' own data.
 - Sophisticated Backpacks contents, including backpacks inside backpacks.
 - Dank Storage contents, with a fresh frequency on the server you arrive at.
-- Items from a mod a server lacks become a named sheet of paper that keeps the original data, and turn back into the item on a server that has the mod. Nothing is thrown away.
+- Items from a mod a server lacks become a named barrier (it cannot be crafted, traded or placed) that keeps the original data, and turn back into the item on a server that has the mod. Nothing is thrown away.
 
 **Built for BSP-Core**
 - A live Shatter Totem is never written into a snapshot. BSP-Core carries totems its own way, so a totem can never be duplicated by the sync.

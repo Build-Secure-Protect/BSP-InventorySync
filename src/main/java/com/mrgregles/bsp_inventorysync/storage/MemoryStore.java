@@ -166,7 +166,11 @@ public final class MemoryStore implements SyncStore {
 
     @Override
     public CompletableFuture<Void> setPresence(UUID player, String serverId, boolean online) {
-        presence.put(player, new Presence(player, online, serverId, clock.getAsLong()));
+        if (online) {
+            presence.put(player, new Presence(player, true, serverId, clock.getAsLong()));
+        } else {
+            presence.computeIfPresent(player, (k, now) -> now.serverId().equals(serverId) ? new Presence(player, false, serverId, clock.getAsLong()) : now);
+        }
         return done(null);
     }
 

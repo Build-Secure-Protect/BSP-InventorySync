@@ -47,9 +47,13 @@ public final class JdbcStore implements SyncStore {
     private final String url;
     private final String players, snapshots, extra;
     private final ExecutorService worker;
+    private static final long FIRST_BACKOFF_MS = 1_000, MAX_BACKOFF_MS = 15_000;
+
     private Connection connection;
     private volatile String lastError = "";
     private volatile boolean closed;
+    private long retryAt, backoffMs;
+    private volatile long connectAttempts;
 
     public JdbcStore(Settings settings) {
         this.settings = settings;
@@ -87,11 +91,22 @@ public final class JdbcStore implements SyncStore {
                 st.executeUpdate("CREATE TABLE IF NOT EXISTS " + extra + " ("
                         + "kind VARCHAR(32) NOT NULL, id CHAR(36) NOT NULL, updated_at BIGINT NOT NULL, data MEDIUMBLOB NOT NULL, "
                         + "PRIMARY KEY (kind, id))");
+                try (ResultSet rs = st.executeQuery("SELECT @@max_allowed_packet")) {
+                    if (rs.next() && rs.getLong(1) < 16L * 1024 * 1024) {
+                        BSPInventorySync.LOGGER.warn("BSP-InventorySync: the database's max_allowed_packet is {} KB; a player with a very full inventory can exceed it and fail to save. 16 MB or more is safe.", rs.getLong(1) / 1024);
+                    }
+                }
             }
             return null;
         });
     }
 
+    /**
+     * The connection, reopened when it has failed. While the database cannot be reached, a new attempt is
+     * made at most once per back-off period (1 s, doubling to 15 s); calls in between fail at once. Without
+     * that, every queued call would spend the full connect timeout on an unreachable host and the queue
+     * (saves, presence polls) would grow for as long as the outage lasts.
+     */
     private Connection conn() throws SQLException {
         if (connection == null || connection.isClosed() || !connection.isValid(2)) {
             if (connection != null) {
@@ -100,11 +115,28 @@ public final class JdbcStore implements SyncStore {
                 } catch (SQLException ignored) {
                     // reopening anyway
                 }
+                connection = null;
             }
-            connection = DriverManager.getConnection(url, settings.user(), settings.password());
-            connection.setAutoCommit(true);
+            if (System.currentTimeMillis() < retryAt) {
+                throw new SQLException("the database is unreachable; waiting before the next try", "08001");
+            }
+            connectAttempts++;
+            try {
+                connection = DriverManager.getConnection(url, settings.user(), settings.password());
+                connection.setAutoCommit(true);
+                backoffMs = 0;
+            } catch (SQLException e) {
+                backoffMs = backoffMs == 0 ? FIRST_BACKOFF_MS : Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+                retryAt = System.currentTimeMillis() + backoffMs;
+                throw e;
+            }
         }
         return connection;
+    }
+
+    /** How often a connection was attempted; for the tests and the log. */
+    public long connectAttempts() {
+        return connectAttempts;
     }
 
     private <T> CompletableFuture<T> run(Callable<T> work) {
@@ -190,6 +222,18 @@ public final class JdbcStore implements SyncStore {
                 ps.setString(1, player.toString());
                 try (ResultSet rs = ps.executeQuery()) {
                     return rs.next() ? Optional.of(row(rs, player)) : Optional.empty();
+                }
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Long> latestVersion(UUID player) {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("SELECT MAX(version) FROM " + snapshots + " WHERE player = ?")) {
+                ps.setString(1, player.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next() ? rs.getLong(1) : 0L; // MAX of no rows is NULL, read as 0
                 }
             }
         });
@@ -310,6 +354,17 @@ public final class JdbcStore implements SyncStore {
 
     @Override
     public CompletableFuture<Void> setPresence(UUID player, String serverId, boolean online) {
+        if (!online) {
+            return run(() -> {
+                try (PreparedStatement ps = conn().prepareStatement("UPDATE " + players + " SET online = 0, since = ? WHERE player = ? AND server_id = ?")) {
+                    ps.setLong(1, System.currentTimeMillis());
+                    ps.setString(2, player.toString());
+                    ps.setString(3, serverId);
+                    ps.executeUpdate(); // another server has taken the player meanwhile: their checkout stays
+                }
+                return null;
+            });
+        }
         return run(() -> {
             try (PreparedStatement ps = conn().prepareStatement("INSERT INTO " + players + " (player, online, server_id, since) VALUES (?, ?, ?, ?) "
                     + "ON DUPLICATE KEY UPDATE online = VALUES(online), server_id = VALUES(server_id), since = VALUES(since)")) {

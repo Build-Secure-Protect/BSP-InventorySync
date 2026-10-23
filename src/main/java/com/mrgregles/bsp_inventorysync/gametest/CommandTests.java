@@ -125,25 +125,26 @@ public class CommandTests {
         h.assertTrue(AdminActions.snapshots(service, UUID.randomUUID(), "ghost", 0).join().equals(List.of("ghost has no snapshots")), "no snapshots line");
 
         List<String> rolled = AdminActions.restore(service, server, p, 1).join();
-        h.assertTrue(rolled.get(0).startsWith("rolled " + name + " back to v1 (logout from hub)"), "rollback line: " + rolled);
+        h.assertTrue(rolled.get(0).startsWith("rolled " + name + " back to v1 (logout from hub)") && rolled.get(0).endsWith("; saved as v3"), "rollback line, saved at once as the newest: " + rolled);
         h.assertTrue(p.getInventory().getItem(0).getCount() == 1, "v1's inventory applied");
         h.assertTrue(AdminActions.restore(service, server, p, 9).join().equals(List.of(name + " has no snapshot v9")), "unknown version");
 
         h.assertTrue(AdminActions.pin(service, id, name, 1, true).join().get(0).contains("v1 pinned"), "pin line");
         Snapshot v1 = store.snapshot(id, 1).join().orElseThrow();
         h.assertTrue(v1.pinned(), "pinned in the store");
-        h.assertTrue(AdminActions.snapshots(service, id, name, 1_060_000).join().get(2).endsWith("pinned"), "listed as pinned");
+        List<String> afterRollback = AdminActions.snapshots(service, id, name, 1_060_000).join();
+        h.assertTrue(afterRollback.get(1).startsWith("  v3  admin") && afterRollback.get(3).endsWith("pinned"), "the rollback's admin save is newest, v1 listed as pinned: " + afterRollback);
         h.assertTrue(AdminActions.pin(service, id, name, 7, true).join().equals(List.of(name + " has no snapshot v7")), "pinning an unknown version");
         h.assertTrue(AdminActions.pin(service, id, name, 1, false).join().get(0).contains("unpinned"), "unpin line");
 
         List<String> resynced = AdminActions.resync(service, p).join();
-        h.assertTrue(resynced.get(0).startsWith("applied v2 from hub to " + name), "resync applies the newest: " + resynced);
-        h.assertTrue(p.getInventory().getItem(0).getCount() == 2, "v2's inventory applied");
+        h.assertTrue(resynced.get(0).startsWith("applied v3 from hub to " + name), "resync applies the newest, the rollback's own save: " + resynced);
+        h.assertTrue(p.getInventory().getItem(0).getCount() == 1, "the rollback (v1's inventory) is what the newest holds");
         ServerPlayer fresh = TestPlayers.mockServerPlayer(h);
         h.assertTrue(AdminActions.resync(service, fresh).join().get(0).endsWith("has no snapshot; nothing applied"), "resync with nothing stored");
 
         List<String> saved = AdminActions.save(service, p).join();
-        h.assertTrue(saved.get(0).startsWith("saved " + name + " as v3"), "admin save line: " + saved);
+        h.assertTrue(saved.get(0).startsWith("saved " + name + " as v4"), "admin save line: " + saved);
         h.assertTrue(store.latest(id).join().orElseThrow().cause() == SaveCause.ADMIN, "as an admin save");
         h.succeed();
     }

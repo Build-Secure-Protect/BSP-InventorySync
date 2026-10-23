@@ -4,7 +4,9 @@ import com.mrgregles.bsp_inventorysync.BSPInventorySync;
 import com.mrgregles.bsp_inventorysync.api.event.InventoryRestoredEvent;
 import com.mrgregles.bsp_inventorysync.api.event.InventorySavedEvent;
 import com.mrgregles.bsp_inventorysync.compat.BspCore;
+import com.mrgregles.bsp_inventorysync.data.ItemRules;
 import com.mrgregles.bsp_inventorysync.data.PlayerSnapshotCodec;
+import com.mrgregles.bsp_inventorysync.data.vanilla.VitalsModule;
 import com.mrgregles.bsp_inventorysync.storage.Presence;
 import com.mrgregles.bsp_inventorysync.storage.SaveCause;
 import com.mrgregles.bsp_inventorysync.storage.Snapshot;
@@ -15,6 +17,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -30,6 +34,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 /**
  * The sync on one server: saves players to the shared {@link SyncStore}, restores them on arrival,
@@ -59,6 +64,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class SyncService {
     private static final Set<UUID> SYNCING = ConcurrentHashMap.newKeySet();
     private static final double TELEPORT_DISTANCE_SQ = 4 * 4; // a jump this big in one tick is a teleport (a landing), not walking
+    /** A player still waiting after this long is told why they cannot move, and again every second. */
+    private static final long NOTICE_AFTER_MS = 1_000, NOTICE_EVERY_MS = 1_000;
+
+    /** A snapshot read on arrival, already decompressed off the server thread. */
+    private record Loaded(Snapshot snapshot, CompoundTag tag) {}
 
     /** An arrival in progress. */
     private final class Pending {
@@ -69,8 +79,10 @@ public final class SyncService {
         boolean queryInFlight;
         boolean acquired;
         boolean waitingForRespawn;
-        @Nullable Snapshot deferred;
+        @Nullable Loaded deferred;
         boolean deferredFallback;
+        long noticedAt;
+        boolean warned;
 
         Pending(ServerPlayer player, long started) {
             this.player = player;
@@ -91,10 +103,18 @@ public final class SyncService {
     private final Set<CompletableFuture<?>> inFlightSaves = ConcurrentHashMap.newKeySet();
     private final Map<UUID, CompoundTag> lastSavedTag = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastSaveAt = new ConcurrentHashMap<>();
+    /** Saves of a player this server has started and the store has not answered yet. */
+    private final Map<UUID, Integer> savingNow = new ConcurrentHashMap<>();
+    /** Players refused at arrival: whatever this server holds for them is a stale copy and is never saved. */
+    private final Set<UUID> noSave = ConcurrentHashMap.newKeySet();
+    /** Health to give back once a restored player's gear has applied its bonuses (one tick after the restore). */
+    private final Map<UUID, HealthLater> healthLater = new ConcurrentHashMap<>();
     private volatile int snapshotsKept = 16;
     private volatile long autosaveMs = 60_000;
     private volatile long storeTimeoutMs = 5_000;
     private volatile long skippedAutosaves, writtenAutosaves, storeTimeouts;
+    /** Where snapshots are compressed and decompressed: one background thread on a real server, the calling thread in tests. */
+    private volatile Executor codec = Runnable::run;
 
     public SyncService(MinecraftServer server, SyncStore store, String serverId) {
         this(server, store, serverId, ArrivalPolicy.DEFAULT);
@@ -133,6 +153,14 @@ public final class SyncService {
         autosaveMs = Math.max(0, ms);
     }
 
+    /**
+     * Moves snapshot compression and decompression off the server thread. It must run one task at a time
+     * (a single thread), so a player's saves keep their order on the way to the store.
+     */
+    public void setCodecExecutor(Executor executor) {
+        codec = executor;
+    }
+
     /** The watchdog: how long any one store call may take before it is given up as failed. */
     public void setStoreTimeoutMs(long ms) {
         storeTimeoutMs = Math.max(100, ms);
@@ -165,6 +193,13 @@ public final class SyncService {
         });
     }
 
+    private record HealthLater(ServerPlayer player, float health, int dueTick) {}
+
+    /** Whether this server must not save the player now: their data is still arriving, or they were refused. */
+    private boolean mustNotSave(UUID player) {
+        return isSyncing(player) || noSave.contains(player);
+    }
+
     /** Whether a player's data is still arriving: frozen, inventory not yet theirs. */
     public static boolean isSyncing(UUID player) {
         return SYNCING.contains(player);
@@ -187,17 +222,41 @@ public final class SyncService {
      * with the stored snapshot; {@link InventorySavedEvent} is posted on the server thread when it does.
      */
     public CompletableFuture<Snapshot> save(ServerPlayer player, SaveCause cause) {
-        return save(player, PlayerSnapshotCodec.capture(player), cause);
+        return save(player, capture(player), cause);
+    }
+
+    /**
+     * The player's state now, with what this server cannot capture carried forward from the snapshot last
+     * saved or restored here: a module whose mod is missing here or that failed this time, and the
+     * capabilities of mods missing here. Without that, a player passing through a server that lacks a mod
+     * would arrive on the next one without that mod's data, and keep whatever stale copy that server had.
+     */
+    CompoundTag capture(ServerPlayer player) {
+        return PlayerSnapshotCodec.carryForward(PlayerSnapshotCodec.capture(player), lastSavedTag.get(player.getUUID()));
     }
 
     private CompletableFuture<Snapshot> save(ServerPlayer player, CompoundTag tag, SaveCause cause) {
-        byte[] data = PlayerSnapshotCodec.encode(tag);
+        return startSave(player, tag, cause).guarded();
+    }
+
+    /** A save under way: {@code raw} completes when the store has really answered, {@code guarded} also on the watchdog's timeout. */
+    private record Saving(CompletableFuture<Snapshot> raw, CompletableFuture<Snapshot> guarded) {}
+
+    /**
+     * The capture is the player's state and is taken on the server thread; compressing it and handing it
+     * to the store happen on the codec thread, one save after another, so a player's saves reach the
+     * store in the order they were taken.
+     */
+    private Saving startSave(ServerPlayer player, CompoundTag tag, SaveCause cause) {
         UUID id = player.getUUID();
         String name = player.getGameProfile().getName();
-        CompletableFuture<Snapshot> future = guard(store.save(id, serverId, cause, data), "save " + name + " " + cause.id());
-        inFlightSaves.add(future);
-        return future.whenComplete((snapshot, error) -> {
-            inFlightSaves.remove(future);
+        savingNow.merge(id, 1, Integer::sum);
+        CompletableFuture<Snapshot> raw = CompletableFuture.supplyAsync(() -> encodeChecked(tag, name), codec)
+                .thenCompose(data -> store.save(id, serverId, cause, data));
+        inFlightSaves.add(raw);
+        raw.whenComplete((snapshot, error) -> {
+            inFlightSaves.remove(raw);
+            savingNow.computeIfPresent(id, (k, n) -> n > 1 ? n - 1 : null);
             if (error != null) {
                 BSPInventorySync.LOGGER.error("BSP-InventorySync: saving {} ({}) failed: {}", name, cause.id(), error.toString());
                 return;
@@ -210,14 +269,39 @@ public final class SyncService {
             });
             server.execute(() -> MinecraftForge.EVENT_BUS.post(new InventorySavedEvent(id, name, cause, snapshot.version(), snapshot.size(), serverId)));
         });
+        return new Saving(raw, guard(raw.copy(), "save " + name + " " + cause.id()));
     }
 
-    /** Saves every listed player whose data is not still arriving. */
+    /** Whether this server is still writing a save of the player (an arrival waits for it: a quick relog must not read the save before). */
+    public boolean saving(UUID player) {
+        return savingNow.containsKey(player);
+    }
+
+    /** A snapshot this large is logged: MySQL's MEDIUMBLOB holds 16 MB, and many servers cap a packet lower. */
+    private static final int LARGE_SNAPSHOT_BYTES = 4 * 1024 * 1024;
+
+    private static byte[] encodeChecked(CompoundTag tag, String name) {
+        byte[] data = PlayerSnapshotCodec.encode(tag);
+        if (data.length >= LARGE_SNAPSHOT_BYTES) {
+            BSPInventorySync.LOGGER.warn("BSP-InventorySync: {}'s snapshot is {} KB compressed; MySQL takes at most 16 MB (and max_allowed_packet may be lower)", name, data.length / 1024);
+        }
+        return data;
+    }
+
+    /**
+     * Saves every listed player whose data is not still arriving and has changed since it was last saved
+     * or restored here. The world save calls this, all in one tick, so the snapshots match the world on
+     * disk; an unchanged player writes nothing and leaves their snapshot history alone.
+     */
     public List<CompletableFuture<Snapshot>> saveAll(Collection<ServerPlayer> players, SaveCause cause) {
         List<CompletableFuture<Snapshot>> out = new ArrayList<>();
         for (ServerPlayer player : players) {
-            if (!isSyncing(player.getUUID())) {
-                out.add(save(player, cause));
+            if (mustNotSave(player.getUUID())) {
+                continue;
+            }
+            CompoundTag tag = capture(player);
+            if (!tag.equals(lastSavedTag.get(player.getUUID()))) {
+                out.add(save(player, tag, cause));
             }
         }
         return out;
@@ -230,10 +314,10 @@ public final class SyncService {
      */
     public Optional<CompletableFuture<Snapshot>> autosave(ServerPlayer player, long now) {
         UUID id = player.getUUID();
-        if (isSyncing(id)) {
+        if (mustNotSave(id)) {
             return Optional.empty();
         }
-        CompoundTag tag = PlayerSnapshotCodec.capture(player);
+        CompoundTag tag = capture(player);
         lastSaveAt.put(id, now);
         if (tag.equals(lastSavedTag.get(id))) {
             skippedAutosaves++;
@@ -243,27 +327,45 @@ public final class SyncService {
         return Optional.of(save(player, tag, SaveCause.AUTOSAVE));
     }
 
-    /** Every settled player whose last save (or last check) is older than the auto-save interval. */
+    /** At most this many players are captured for the auto-save in one tick; the rest take their turn in the next ticks. */
+    static final int AUTOSAVE_CAPTURES_PER_TICK = 4;
+
+    /**
+     * Every settled player whose last save (or last check) is older than the auto-save interval, at most
+     * {@link #AUTOSAVE_CAPTURES_PER_TICK} of them per call, so a crowd that came due together (a restart,
+     * a lag spike) is spread over the following ticks.
+     */
     public int autosaveDue(Collection<ServerPlayer> players, long now) {
         if (autosaveMs <= 0) {
             return 0;
         }
         int written = 0;
+        int captured = 0;
         for (ServerPlayer player : players) {
             UUID id = player.getUUID();
-            if (isSyncing(id)) {
+            if (mustNotSave(id)) {
                 continue;
             }
             Long last = lastSaveAt.get(id);
             if (last == null) {
-                lastSaveAt.put(id, now); // first seen (the mod was switched on while they were online): their turn comes one interval from now
+                lastSaveAt.put(id, staggered(now)); // first seen (the mod was switched on while they were online): a turn somewhere in the next interval
                 continue;
             }
-            if (now - last >= autosaveMs && autosave(player, now).isPresent()) {
-                written++;
+            if (now - last >= autosaveMs) {
+                if (captured++ >= AUTOSAVE_CAPTURES_PER_TICK) {
+                    break;
+                }
+                if (autosave(player, now).isPresent()) {
+                    written++;
+                }
             }
         }
         return written;
+    }
+
+    /** A last-save time that puts the next auto-save somewhere in the coming interval, so players seen together are not saved together. */
+    private long staggered(long now) {
+        return autosaveMs <= 0 ? now : now - java.util.concurrent.ThreadLocalRandom.current().nextLong(autosaveMs);
     }
 
     // ------------------------------------------------------------------ restoring
@@ -276,7 +378,11 @@ public final class SyncService {
      * {@link InventoryRestoredEvent}. Server thread.
      */
     public Restored restore(ServerPlayer player, Snapshot snapshot, boolean fallback) {
-        CompoundTag tag = PlayerSnapshotCodec.decode(snapshot.data());
+        return restore(player, snapshot, PlayerSnapshotCodec.decode(snapshot.data()), fallback);
+    }
+
+    /** As {@link #restore(ServerPlayer, Snapshot, boolean)} with the snapshot already decompressed. */
+    public Restored restore(ServerPlayer player, Snapshot snapshot, CompoundTag tag, boolean fallback) {
         List<ItemStack> totems = BspCore.takeLiveTotems(player);
         PlayerSnapshotCodec.Result result = PlayerSnapshotCodec.apply(player, tag, new com.mrgregles.bsp_inventorysync.data.RestoreContext(snapshot.serverId(), serverId));
         lastSavedTag.put(player.getUUID(), tag);
@@ -329,12 +435,22 @@ public final class SyncService {
         if (autosaveMs > 0 && server.getPlayerList() != null) {
             autosaveDue(server.getPlayerList().getPlayers(), now);
         }
+        if (!healthLater.isEmpty()) {
+            giveHealthBack();
+        }
         if (pending.isEmpty()) {
             return;
         }
         for (Pending p : new ArrayList<>(pending.values())) {
             holdStill(p);
-            if (p.waitingForRespawn || p.queryInFlight) {
+            if (p.waitingForRespawn) {
+                continue;
+            }
+            if (now - p.started >= NOTICE_AFTER_MS && now - p.noticedAt >= NOTICE_EVERY_MS) {
+                p.noticedAt = now;
+                p.player.displayClientMessage(Component.literal("Loading your items...").withStyle(ChatFormatting.GRAY), true);
+            }
+            if (p.queryInFlight) {
                 continue;
             }
             if (p.acquired) {
@@ -344,6 +460,9 @@ public final class SyncService {
                 timedOut(p, now);
                 continue;
             }
+            if (saving(p.player.getUUID())) {
+                continue; // a quick relog: this server's own logout save of them has not landed yet
+            }
             p.queryInFlight = true;
             UUID id = p.player.getUUID();
             guard(store.presence(id), "presence " + p.player.getGameProfile().getName()).whenComplete((presence, error) -> server.execute(() -> {
@@ -352,7 +471,10 @@ public final class SyncService {
                     return; // left meanwhile
                 }
                 if (error != null) {
-                    BSPInventorySync.LOGGER.warn("BSP-InventorySync: could not read where {} is: {}", p.player.getGameProfile().getName(), error.toString());
+                    if (!p.warned) {
+                        p.warned = true; // once per arrival: the poll repeats every tick
+                        BSPInventorySync.LOGGER.warn("BSP-InventorySync: could not read where {} is: {}; retrying until the arrival timeout", p.player.getGameProfile().getName(), error.toString());
+                    }
                     return; // try again next tick, until the timeout
                 }
                 if (presence.isEmpty() || !presence.get().onlineElsewhere(serverId)) {
@@ -383,12 +505,13 @@ public final class SyncService {
         UUID id = p.player.getUUID();
         heldHere.add(id);
         guard(store.setPresence(id, serverId, true).thenCompose(v -> store.latest(id)), "arrival of " + p.player.getGameProfile().getName())
+                .thenApplyAsync(latest -> latest.map(s -> new Loaded(s, PlayerSnapshotCodec.decode(s.data()))), codec)
                 .whenComplete((latest, error) -> server.execute(() -> {
                     if (pending.get(id) != p) {
                         return; // left meanwhile; onLogout released the checkout
                     }
                     if (error != null) {
-                        BSPInventorySync.LOGGER.error("BSP-InventorySync: could not read {}'s data; they keep what this server had", p.player.getGameProfile().getName(), error);
+                        BSPInventorySync.LOGGER.error("BSP-InventorySync: could not read {}'s data; refusing the login so this server's stale copy is never saved over it", p.player.getGameProfile().getName(), error);
                         finish(p, null, fallback, Arrival.Outcome.UNAVAILABLE, now);
                         return;
                     }
@@ -410,6 +533,7 @@ public final class SyncService {
             BSPInventorySync.LOGGER.warn("BSP-InventorySync: {} is still held by another server after {} ms; refusing the login", name, now - p.started);
             pending.remove(id);
             SYNCING.remove(id);
+            noSave.add(id); // what this server holds for them is stale: their logout must not save it
             arrivals.put(id, new Arrival(id, Arrival.Outcome.KICKED, 0, now - p.started));
             p.player.connection.disconnect(Component.literal("Your data is still being saved by the server you came from. Please try again in a moment."));
             return;
@@ -418,16 +542,38 @@ public final class SyncService {
         arrive(p, now, true);
     }
 
-    /** Applies (or not) and unfreezes. {@code snapshot} null: nothing to apply, the player keeps what they have. */
-    private void finish(Pending p, @Nullable Snapshot snapshot, boolean fallback, Arrival.Outcome outcome, long now) {
+    /**
+     * Applies (or not) and unfreezes. {@code loaded} null: nothing to apply, the player keeps what they have.
+     * Before applying, the 2x2 crafting grid is emptied: at login it starts empty, so anything in it now
+     * was moved there from this server's stale copy while the player waited, and the restore would not
+     * replace it.
+     */
+    private void finish(Pending p, @Nullable Loaded loaded, boolean fallback, Arrival.Outcome outcome, long now) {
         UUID id = p.player.getUUID();
         pending.remove(id);
         SYNCING.remove(id);
+        if (outcome == Arrival.Outcome.UNAVAILABLE) {
+            // the store could not be read: letting them play would mean playing on this server's stale copy, and
+            // saving it later over their real data. Refused instead, and nothing of theirs is saved here.
+            noSave.add(id);
+            arrivals.put(id, new Arrival(id, outcome, 0, now - p.started));
+            p.player.connection.disconnect(Component.literal("Your items could not be loaded from the network. Nothing was changed: please rejoin in a minute."));
+            return;
+        }
         lastSaveAt.put(id, now); // the auto-save interval counts from the arrival
         long version = 0;
+        List<String> failedModules = List.of();
         try {
-            if (snapshot != null) {
-                version = restore(p.player, snapshot, fallback).version();
+            if (loaded != null) {
+                p.player.inventoryMenu.getCraftSlots().clearContent();
+                p.player.inventoryMenu.slotsChanged(p.player.inventoryMenu.getCraftSlots());
+                Restored r = restore(p.player, loaded.snapshot(), loaded.tag(), fallback);
+                version = r.version();
+                failedModules = r.modules().failed();
+                float health = VitalsModule.savedHealth(PlayerSnapshotCodec.module(loaded.tag(), VitalsModule.ID));
+                if (health > p.player.getHealth()) {
+                    healthLater.put(id, new HealthLater(p.player, health, server.getTickCount() + 2)); // capped by a maximum that gear has not raised yet
+                }
             } else {
                 MinecraftForge.EVENT_BUS.post(new InventoryRestoredEvent(p.player, 0, "", fallback, List.of(), 0));
             }
@@ -435,10 +581,25 @@ public final class SyncService {
             arrivals.put(id, new Arrival(id, outcome, version, now - p.started));
         }
         if (fallback) {
-            p.player.displayClientMessage(Component.literal("Your items may be out of date: the server you came from did not answer in time.").withStyle(ChatFormatting.GOLD), false);
-        } else if (outcome == Arrival.Outcome.UNAVAILABLE) {
-            p.player.displayClientMessage(Component.literal("Your items could not be loaded from the network. Tell an admin if anything is missing.").withStyle(ChatFormatting.RED), false);
+            p.player.displayClientMessage(Component.literal("Your items may be out of date: the server you came from did not answer in time. Tell an admin if anything is missing.").withStyle(ChatFormatting.GOLD), false);
         }
+        if (!failedModules.isEmpty()) {
+            p.player.displayClientMessage(Component.literal("Some of your data could not be loaded (" + String.join(", ", failedModules) + "). Tell an admin.").withStyle(ChatFormatting.RED), false);
+        }
+    }
+
+    /** Gives restored players the health their gear allows, now that its bonuses have applied. */
+    private void giveHealthBack() {
+        int tick = server.getTickCount();
+        healthLater.values().removeIf(h -> {
+            if (tick < h.dueTick()) {
+                return false;
+            }
+            if (!h.player().isRemoved() && h.player().isAlive() && h.health() > h.player().getHealth()) {
+                h.player().setHealth(Math.min(h.health(), h.player().getMaxHealth()));
+            }
+            return true;
+        });
     }
 
     /**
@@ -474,9 +635,16 @@ public final class SyncService {
         Pending p = pending.remove(id);
         SYNCING.remove(id);
         String target = transfers.remove(id);
-        lastSavedTag.remove(id);
         lastSaveAt.remove(id);
+        healthLater.remove(id);
+        if (noSave.remove(id)) {
+            lastSavedTag.remove(id);
+            heldHere.remove(id);
+            BSPInventorySync.LOGGER.info("BSP-InventorySync: {} was refused at arrival; nothing saved", player.getGameProfile().getName());
+            return guard(store.setPresence(id, serverId, false), "release " + player.getGameProfile().getName()); // only if this server took them
+        }
         if (p != null) {
+            lastSavedTag.remove(id);
             arrivals.put(id, new Arrival(id, Arrival.Outcome.LEFT, 0, 0));
             BSPInventorySync.LOGGER.info("BSP-InventorySync: {} left before their data arrived; nothing saved", player.getGameProfile().getName());
             if (p.acquired) {
@@ -491,8 +659,17 @@ public final class SyncService {
         }
         heldHere.remove(id);
         SaveCause cause = target != null ? SaveCause.TRANSFER : SaveCause.LOGOUT;
-        return save(player, cause).handle((snapshot, error) -> null)
-                .thenCompose(v -> guard(store.setPresence(id, serverId, false), "release " + player.getGameProfile().getName())); // released even after a failed save, so the player is never stuck (the error is logged)
+        CompoundTag tag = departureCapture(player);
+        lastSavedTag.remove(id);
+        // released once the store has really answered the save (not merely the watchdog), so no server reads
+        // their data before it lands; released after a failed save too, so the player is never stuck (the error is logged)
+        return startSave(player, tag, cause).raw().handle((snapshot, error) -> null)
+                .thenCompose(v -> guard(store.setPresence(id, serverId, false), "release " + player.getGameProfile().getName()))
+                .whenComplete((v, error) -> {
+                    if (!heldHere.contains(id) && !pending.containsKey(id)) {
+                        lastSavedTag.remove(id); // the save put it back; nothing is kept for a player who has gone
+                    }
+                });
     }
 
     // ------------------------------------------------------------------ transfers (request T1)
@@ -504,12 +681,49 @@ public final class SyncService {
      */
     public boolean beginTransfer(ServerPlayer player, String targetServer) {
         UUID id = player.getUUID();
-        if (isSyncing(id)) {
+        if (mustNotSave(id)) {
             return false;
         }
         transfers.put(id, targetServer);
-        save(player, SaveCause.TRANSFER);
+        player.closeContainer(); // still connected: an open menu gives its items back to the inventory, as on any close
+        save(player, departureCapture(player), SaveCause.TRANSFER);
         return true;
+    }
+
+    /**
+     * The snapshot of a player who is leaving. Once a disconnected player is removed from the world,
+     * Minecraft drops the item on their cursor and those in their 2x2 crafting grid where they stood, so
+     * a snapshot holding the cursor item would put it in two places. They are moved into the inventory
+     * first and saved with it; whatever does not fit stays where it was, is left out of the snapshot, and
+     * is dropped here as before.
+     */
+    CompoundTag departureCapture(ServerPlayer player) {
+        Inventory inv = player.getInventory();
+        CraftingContainer grid = player.inventoryMenu.getCraftSlots();
+        for (int i = 0; i < grid.getContainerSize(); i++) {
+            ItemStack stack = grid.getItem(i);
+            if (!stack.isEmpty() && !ItemRules.excluded(stack)) {
+                inv.add(stack); // shrinks the stack to what did not fit
+                if (stack.isEmpty()) {
+                    grid.setItem(i, ItemStack.EMPTY);
+                }
+            }
+        }
+        ItemStack carried = player.containerMenu.getCarried();
+        if (!carried.isEmpty() && !ItemRules.excluded(carried)) {
+            inv.add(carried);
+        }
+        carried = player.containerMenu.getCarried();
+        if (carried.isEmpty()) {
+            player.containerMenu.setCarried(ItemStack.EMPTY);
+            return capture(player);
+        }
+        player.containerMenu.setCarried(ItemStack.EMPTY); // the rest stays on the cursor for Minecraft to drop, but not in the snapshot
+        try {
+            return capture(player);
+        } finally {
+            player.containerMenu.setCarried(carried);
+        }
     }
 
     /** The transfer did not happen: the next logout is an ordinary one. */
@@ -532,11 +746,11 @@ public final class SyncService {
         int n = 0;
         for (ServerPlayer player : players) {
             UUID id = player.getUUID();
-            if (isSyncing(id)) {
+            if (mustNotSave(id)) {
                 continue;
             }
             heldHere.add(id);
-            lastSaveAt.put(id, now);
+            lastSaveAt.put(id, staggered(now));
             guard(store.setPresence(id, serverId, true), "adopt " + player.getGameProfile().getName());
             n++;
         }

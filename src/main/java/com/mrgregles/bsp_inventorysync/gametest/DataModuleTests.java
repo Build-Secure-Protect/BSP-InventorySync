@@ -115,7 +115,7 @@ public class DataModuleTests {
     }
 
     @GameTest(template = EMPTY)
-    public static void vitals_experience_game_mode_abilities_and_respawn_round_trip(GameTestHelper h) {
+    public static void vitals_experience_game_mode_and_abilities_round_trip_and_the_respawn_point_stays_per_server(GameTestHelper h) {
         ServerPlayer p = TestPlayers.mockServerPlayer(h);
         p.setHealth(7.5f);
         p.setAbsorptionAmount(4f);
@@ -135,6 +135,11 @@ public class DataModuleTests {
         p.setRespawnPosition(Level.NETHER, bed, 90f, true, false);
 
         CompoundTag snapshot = PlayerSnapshotCodec.capture(p);
+        h.assertTrue(!PlayerSnapshotCodec.module(snapshot, GameModule.ID).contains("Respawn"), "the respawn point is not in the snapshot (D16)");
+        CompoundTag oldRespawn = new CompoundTag(); // as a snapshot taken before D16 carries it
+        oldRespawn.putString("Dim", "minecraft:the_end");
+        oldRespawn.putLong("Pos", new BlockPos(1, 2, 3).asLong());
+        PlayerSnapshotCodec.module(snapshot, GameModule.ID).put("Respawn", oldRespawn);
 
         p.setGameMode(GameType.SURVIVAL);
         p.setHealth(20f);
@@ -147,7 +152,8 @@ public class DataModuleTests {
         p.experienceProgress = 0f;
         p.totalExperience = 0;
         p.setScore(0);
-        p.setRespawnPosition(Level.OVERWORLD, null, 0f, false, false);
+        BlockPos localBed = new BlockPos(-5, 70, 8); // this server's own bed, in its own world
+        p.setRespawnPosition(Level.OVERWORLD, localBed, 45f, false, false);
 
         PlayerSnapshotCodec.Result result = PlayerSnapshotCodec.apply(p, snapshot);
         h.assertTrue(result.clean(), "all modules applied: " + result);
@@ -165,7 +171,8 @@ public class DataModuleTests {
         h.assertTrue(p.getScore() == 99, "score, got " + p.getScore());
         h.assertTrue(p.gameMode.getGameModeForPlayer() == GameType.CREATIVE, "game mode, got " + p.gameMode.getGameModeForPlayer());
         h.assertTrue(p.getAbilities().flying && p.getAbilities().mayfly, "flying restored");
-        h.assertTrue(bed.equals(p.getRespawnPosition()) && p.getRespawnDimension() == Level.NETHER && p.getRespawnAngle() == 90f && p.isRespawnForced(), "respawn point, got " + p.getRespawnPosition() + " in " + p.getRespawnDimension());
+        h.assertTrue(localBed.equals(p.getRespawnPosition()) && p.getRespawnDimension() == Level.OVERWORLD && p.getRespawnAngle() == 45f && !p.isRespawnForced(),
+                "this server's respawn point is kept, and an old snapshot's is ignored: got " + p.getRespawnPosition() + " in " + p.getRespawnDimension());
         h.succeed();
     }
 
@@ -188,18 +195,53 @@ public class DataModuleTests {
         PlayerSnapshotCodec.Result result = PlayerSnapshotCodec.apply(p, snapshot);
         h.assertTrue(result.clean(), "applied: " + result);
         ItemStack placeholder = p.getInventory().getItem(4);
-        h.assertTrue(placeholder.is(Items.PAPER) && placeholder.getCount() == 2, "a sheet of paper with the original count, got " + placeholder);
+        h.assertTrue(placeholder.is(Items.BARRIER) && placeholder.getCount() == 2, "a barrier with the original count (D14), got " + placeholder);
+        ListTag lore = placeholder.getTag().getCompound("display").getList("Lore", Tag.TAG_STRING);
+        h.assertTrue(lore.size() == 2 && lore.getString(1).contains("Keep it: it is the real item."), "two lore lines, the second saying to keep it: " + lore);
         h.assertTrue(ItemCodec.isPlaceholder(placeholder), "marked as a placeholder");
         h.assertTrue(placeholder.getHoverName().getString().contains("nosuchmod:widget"), "named after the missing item, got " + placeholder.getHoverName().getString());
         h.assertTrue(placeholder.getTag().getCompound(ItemCodec.ORIGINAL).getCompound("tag").getInt("Charge") == 41, "the original NBT is kept");
 
-        placeholder.setCount(1); // the player split the stack while it was paper
+        placeholder.setCount(1); // the player split the stack while it was a placeholder
         CompoundTag again = PlayerSnapshotCodec.capture(p);
         ListTag savedItems = PlayerSnapshotCodec.module(again, InventoryModule.ID).getList("Items", Tag.TAG_COMPOUND);
         h.assertTrue(savedItems.size() == 1, "one slot saved: " + savedItems);
         CompoundTag saved = savedItems.getCompound(0).getCompound("Item");
         h.assertTrue(saved.getString("id").equals("nosuchmod:widget") && saved.getByte("Count") == 1 && saved.getCompound("tag").getInt("Charge") == 41, "the original comes back with the new count, got " + saved);
         h.assertTrue(ItemCodec.load(ItemCodec.save(new ItemStack(Items.STONE, 5))).is(Items.STONE), "known items are untouched by the codec");
+
+        // a placeholder made before D14 is paper: recognised by its tag, saved as the original, and a barrier when loaded again
+        ItemStack oldPaper = new ItemStack(Items.PAPER, 3);
+        oldPaper.getOrCreateTag().put(ItemCodec.ORIGINAL, original.copy());
+        CompoundTag fromPaper = ItemCodec.save(oldPaper);
+        h.assertTrue(fromPaper.getString("id").equals("nosuchmod:widget") && fromPaper.getByte("Count") == 3, "an old paper placeholder saves as the original: " + fromPaper);
+        h.assertTrue(ItemCodec.load(fromPaper).is(Items.BARRIER), "and loads back as a barrier");
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_placeholder_cannot_be_placed_or_used_but_blocks_can_still_be_clicked(GameTestHelper h) {
+        ServerPlayer p = TestPlayers.mockServerPlayer(h);
+        CompoundTag original = new CompoundTag();
+        original.putString("id", "nosuchmod:widget");
+        original.putByte("Count", (byte) 1);
+        ItemStack placeholder = ItemCodec.load(original);
+        p.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, placeholder);
+        net.minecraft.core.BlockPos at = h.absolutePos(new net.minecraft.core.BlockPos(1, 1, 1));
+        net.minecraft.world.phys.BlockHitResult hit = new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(at), net.minecraft.core.Direction.UP, at, false);
+
+        var onBlock = new net.minecraftforge.event.entity.player.PlayerInteractEvent.RightClickBlock(p, net.minecraft.world.InteractionHand.MAIN_HAND, at, hit);
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(onBlock);
+        h.assertTrue(onBlock.getUseItem() == net.minecraftforge.eventbus.api.Event.Result.DENY, "placing the barrier is refused");
+        h.assertTrue(!onBlock.isCanceled() && onBlock.getUseBlock() != net.minecraftforge.eventbus.api.Event.Result.DENY, "the block itself can still be used (a chest opens)");
+        var inAir = new net.minecraftforge.event.entity.player.PlayerInteractEvent.RightClickItem(p, net.minecraft.world.InteractionHand.MAIN_HAND);
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(inAir);
+        h.assertTrue(inAir.isCanceled(), "using it in the air is refused");
+
+        p.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, new ItemStack(Items.BARRIER)); // a real barrier (an operator's) is left alone
+        var real = new net.minecraftforge.event.entity.player.PlayerInteractEvent.RightClickBlock(p, net.minecraft.world.InteractionHand.MAIN_HAND, at, hit);
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(real);
+        h.assertTrue(real.getUseItem() != net.minecraftforge.eventbus.api.Event.Result.DENY, "a real barrier is not touched");
         h.succeed();
     }
 

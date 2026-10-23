@@ -126,6 +126,15 @@ public final class BspCore {
             taken.add(cursor.copy());
             player.containerMenu.setCarried(ItemStack.EMPTY);
         }
+        // the ender chest too: a totem never goes into a snapshot, so the restore would clear it away there
+        net.minecraft.world.inventory.PlayerEnderChestContainer ender = player.getEnderChestInventory();
+        for (int i = 0; i < ender.getContainerSize(); i++) {
+            ItemStack stack = ender.getItem(i);
+            if (isLiveTotem(stack)) {
+                taken.add(stack.copy());
+                ender.setItem(i, ItemStack.EMPTY);
+            }
+        }
         return taken;
     }
 

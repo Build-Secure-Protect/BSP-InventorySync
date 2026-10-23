@@ -30,7 +30,7 @@ import java.util.function.Supplier;
 public final class ForgeDataModule implements DataModule {
     public static final String ID = "forge";
     private static final String DATA = "Data";
-    private static final String CAPS = "Caps";
+    public static final String CAPS = "Caps";
 
     @Nullable private static final Method SERIALIZE_CAPS = find("serializeCaps");
     @Nullable private static final Method DESERIALIZE_CAPS = find("deserializeCaps", CompoundTag.class);
@@ -119,7 +119,8 @@ public final class ForgeDataModule implements DataModule {
     @Nullable
     private static CompoundTag invokeSerialize(ServerPlayer player) {
         try {
-            return (CompoundTag) SERIALIZE_CAPS.invoke(player);
+            CompoundTag caps = (CompoundTag) SERIALIZE_CAPS.invoke(player);
+            return caps == null ? null : caps.copy(); // a copy: a mod may hand back its live tag, and the snapshot is compressed off the server thread
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("serializeCaps failed", e.getCause() != null ? e.getCause() : e);
         }

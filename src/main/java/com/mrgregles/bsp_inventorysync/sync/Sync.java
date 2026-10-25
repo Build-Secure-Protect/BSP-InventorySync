@@ -10,6 +10,7 @@ import com.mrgregles.bsp_inventorysync.storage.SyncStore;
 import net.minecraft.server.MinecraftServer;
 
 import javax.annotation.Nullable;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -35,6 +36,12 @@ public final class Sync {
     }
 
     public static void start(MinecraftServer server) {
+        if (!server.isDedicatedServer()) {
+            // a single-player or LAN world is never part of the network, whatever its config says: a modpack that ships the
+            // servers' config in defaultconfigs would otherwise make every new world a copy of a real server on the shared database
+            BSPInventorySync.LOGGER.info("BSP-InventorySync: not a dedicated server (single player or LAN): inventory sync is off");
+            return;
+        }
         String mode = SyncConfig.getOr(SyncConfig.STORAGE_MODE, "off");
         if (!"mysql".equalsIgnoreCase(mode)) {
             BSPInventorySync.LOGGER.info("BSP-InventorySync: storage.mode is \"{}\": no shared database, inventory sync is off on this server", mode);
@@ -76,6 +83,11 @@ public final class Sync {
         service.setSnapshotsKept(SyncConfig.getOr(SyncConfig.SNAPSHOTS_KEPT, 16));
         service.setAutosaveMs(SyncConfig.getOr(SyncConfig.AUTOSAVE_SECONDS, 60) * 1000L);
         service.setStoreTimeoutMs(SyncConfig.getOr(SyncConfig.STORE_TIMEOUT_SECONDS, 5) * 1000L);
+        List<? extends String> network = SyncConfig.getOr(SyncConfig.NETWORK_SERVERS, List.of());
+        service.setNetworkServers(network);
+        if (network.isEmpty()) {
+            BSPInventorySync.LOGGER.warn("BSP-InventorySync: sync.networkServers is empty, so a snapshot saved by any server is applied; list this network's server ids to refuse others");
+        }
         active = service;
         service.onServerStarted();
         BSPInventorySync.LOGGER.info("BSP-InventorySync: sync started as \"{}\" on {} with {}", serverId, db.describe(), redisNote);

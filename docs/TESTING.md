@@ -155,3 +155,11 @@ Covered headlessly (the placeholder round trip now expects a barrier with two lo
 - [ ] In a crafting grid it makes nothing, in a furnace it does not smelt or burn, and no villager trade takes it; it can be dropped, stored in a chest and picked up again.
 - [ ] Back on A: it is the original item again, with all its data.
 - [ ] An old paper placeholder (from before this build), carried to a server without the mod, becomes a barrier there; on a server with the mod it is the original item.
+
+## 2026-10-25: single-player worlds and servers outside the network
+
+Covered headlessly (2 new GameTests, 61 in all): the game test server, which is not a dedicated server, refuses to start the sync even with `storage.mode = "mysql"` and a real server id; and a snapshot saved by a server not in `sync.networkServers` is passed over for the network's newest. The first test was checked against the build without the fix and fails there.
+
+- [ ] Set `sync.networkServers` on every backend to the full list of the network's server ids (the same list everywhere), restart, and check the log has no "sync.networkServers is empty" warning.
+- [ ] In a single-player world of the client pack (even one whose `serverconfig/bsp_inventorysync-server.toml` says `mode = "mysql"`), the log says "not a dedicated server (single player or LAN): inventory sync is off". Change your inventory there, then join the network: you arrive with your network inventory, not the single-player one.
+- [ ] `/invsync snapshots <you>` on a backend after that: no new snapshot from the single-player session.

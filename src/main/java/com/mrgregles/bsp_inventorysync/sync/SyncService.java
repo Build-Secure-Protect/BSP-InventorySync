@@ -113,6 +113,7 @@ public final class SyncService {
     private volatile long autosaveMs = 60_000;
     private volatile long storeTimeoutMs = 5_000;
     private volatile long skippedAutosaves, writtenAutosaves, storeTimeouts;
+    private volatile Set<String> networkServers = Set.of();
     /** Where snapshots are compressed and decompressed: one background thread on a real server, the calling thread in tests. */
     private volatile Executor codec = Runnable::run;
 
@@ -272,6 +273,37 @@ public final class SyncService {
         return new Saving(raw, guard(raw.copy(), "save " + name + " " + cause.id()));
     }
 
+    /**
+     * The server ids of this network ({@code sync.networkServers}); empty means any. This server's own id
+     * always counts.
+     */
+    public void setNetworkServers(Collection<? extends String> ids) {
+        Set<String> copy = Set.copyOf(ids);
+        networkServers = copy;
+    }
+
+    /** Whether a snapshot saved by {@code source} may be applied here. */
+    public boolean fromNetwork(String source) {
+        Set<String> ids = networkServers;
+        return ids.isEmpty() || ids.contains(source) || serverId.equals(source);
+    }
+
+    /**
+     * The newest snapshot saved by a server of this network. One saved by any other server (a test server
+     * or a world pointed at the same database by mistake) is passed over, logged, and the newest from a
+     * network server used instead; empty when there is none.
+     */
+    CompletableFuture<Optional<Snapshot>> networkLatest(UUID player) {
+        return store.latest(player).thenCompose(latest -> {
+            if (latest.isEmpty() || fromNetwork(latest.get().serverId())) {
+                return CompletableFuture.completedFuture(latest);
+            }
+            BSPInventorySync.LOGGER.warn("BSP-InventorySync: {}'s newest snapshot v{} was saved by \"{}\", which is not in sync.networkServers; it is not applied",
+                    player, latest.get().version(), latest.get().serverId());
+            return store.history(player).thenApply(all -> all.stream().filter(s -> fromNetwork(s.serverId())).findFirst());
+        });
+    }
+
     /** Whether this server is still writing a save of the player (an arrival waits for it: a quick relog must not read the save before). */
     public boolean saving(UUID player) {
         return savingNow.containsKey(player);
@@ -402,7 +434,7 @@ public final class SyncService {
      * with version 0.
      */
     public CompletableFuture<Optional<Restored>> restoreLatest(ServerPlayer player) {
-        return guard(store.latest(player.getUUID()), "latest " + player.getGameProfile().getName()).thenCompose(latest -> {
+        return guard(networkLatest(player.getUUID()), "latest " + player.getGameProfile().getName()).thenCompose(latest -> {
             CompletableFuture<Optional<Restored>> out = new CompletableFuture<>();
             server.execute(() -> {
                 try {
@@ -504,7 +536,7 @@ public final class SyncService {
         p.acquired = true;
         UUID id = p.player.getUUID();
         heldHere.add(id);
-        guard(store.setPresence(id, serverId, true).thenCompose(v -> store.latest(id)), "arrival of " + p.player.getGameProfile().getName())
+        guard(store.setPresence(id, serverId, true).thenCompose(v -> networkLatest(id)), "arrival of " + p.player.getGameProfile().getName())
                 .thenApplyAsync(latest -> latest.map(s -> new Loaded(s, PlayerSnapshotCodec.decode(s.data()))), codec)
                 .whenComplete((latest, error) -> server.execute(() -> {
                     if (pending.get(id) != p) {

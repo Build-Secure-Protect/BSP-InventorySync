@@ -34,6 +34,7 @@ public final class SyncConfig {
     public static final ForgeConfigSpec.IntValue REDIS_SNAPSHOT_TTL_SECONDS;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> EXCLUDE_FORGE_DATA;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> EXCLUDE_CAPABILITIES;
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> NETWORK_SERVERS;
     public static final ForgeConfigSpec.IntValue ARRIVAL_TIMEOUT_SECONDS;
     public static final ForgeConfigSpec.BooleanValue KICK_ON_TIMEOUT;
 
@@ -73,6 +74,10 @@ public final class SyncConfig {
                 .defineListAllowEmpty(List.of("excludeForgeData"), () -> List.of("PlayerPersisted.bsp_core:LastMainDim", "PlayerPersisted.bsp_core:LastMainPos"), o -> o instanceof String);
         EXCLUDE_CAPABILITIES = b.comment("Capability ids that are not synced through the generic module. curios:inventory travels through the Curios adapter instead.")
                 .defineListAllowEmpty(List.of("excludeCapabilities"), () -> List.of("curios:inventory"), o -> o instanceof String);
+        NETWORK_SERVERS = b.comment("The server ids (storage.serverId) of every backend of this network. A snapshot saved by any other server",
+                        "(a test server or an old world pointed at the same database) is never applied on arrival: the newest snapshot",
+                        "from a listed server is used instead. This server's own id always counts. Empty: snapshots from any server are applied.")
+                .defineListAllowEmpty(List.of("networkServers"), List::of, o -> o instanceof String);
         b.pop();
         b.push("arrival");
         ARRIVAL_TIMEOUT_SECONDS = b.comment("How long an arriving player waits, frozen, for the server they came from to finish saving.")

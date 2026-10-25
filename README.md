@@ -10,7 +10,7 @@ Started 2026-10-17. Storage, data modules, the totem rules, the arrival handshak
 
 ## Configuring
 
-Server config: `<world>/serverconfig/bsp_inventorysync-server.toml`. The mod is off until `storage.mode = "mysql"`. By default it connects to the database named in BSP-Core's own `storage.*` settings and uses BSP-Core's `storage.serverId`, keeping its own tables under `bsp_is_`. Turn on `redis.enabled` with the network's Redis to make server switches instant; without Redis the switch waits only for the source server's save to land in MySQL. See `docs/API.md` for how other mods hook in.
+Server config: `<world>/serverconfig/bsp_inventorysync-server.toml`. The mod is off until `storage.mode = "mysql"`. By default it connects to the database named in BSP-Core's own `storage.*` settings and uses BSP-Core's `storage.serverId`, keeping its own tables under `bsp_is_`. Turn on `redis.enabled` with the network's Redis to make server switches instant; without Redis the switch waits only for the source server's save to land in MySQL. List every backend's server id in `sync.networkServers` so a snapshot saved by any other server is never applied. The sync only ever runs on a dedicated server: single-player and LAN worlds are always off, whatever their config says, so keep the servers' configs (and their passwords) out of the client modpack's `defaultconfigs`. See `docs/API.md` for how other mods hook in.
 
 ## Building
 

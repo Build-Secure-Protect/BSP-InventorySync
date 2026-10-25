@@ -1,6 +1,7 @@
 package com.mrgregles.bsp_inventorysync.gametest;
 
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
+import com.mrgregles.bsp_inventorysync.SyncConfig;
 import com.mrgregles.bsp_inventorysync.compat.BspCore;
 import com.mrgregles.bsp_inventorysync.data.ItemCodec;
 import com.mrgregles.bsp_inventorysync.data.PlayerSnapshotCodec;
@@ -15,6 +16,7 @@ import com.mrgregles.bsp_inventorysync.storage.SaveCause;
 import com.mrgregles.bsp_inventorysync.storage.Snapshot;
 import com.mrgregles.bsp_inventorysync.sync.Arrival;
 import com.mrgregles.bsp_inventorysync.sync.ArrivalPolicy;
+import com.mrgregles.bsp_inventorysync.sync.Sync;
 import com.mrgregles.bsp_inventorysync.sync.SyncService;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -106,6 +108,53 @@ public class SafetyTests {
         service.onLogout(p).join();
         p.remove(Entity.RemovalReason.UNLOADED_WITH_PLAYER);
         return PlayerSnapshotCodec.decode(store.latest(p.getUUID()).join().orElseThrow().data());
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_world_that_is_not_a_dedicated_server_never_syncs_whatever_its_config_says(GameTestHelper h) {
+        MinecraftServer server = h.getLevel().getServer();
+        h.assertTrue(!server.isDedicatedServer(), "the game test server is not dedicated, like a single-player or LAN world");
+        String mode = SyncConfig.STORAGE_MODE.get();
+        String id = SyncConfig.SERVER_ID.get();
+        try {
+            SyncConfig.STORAGE_MODE.set("mysql"); // as a world gets from a modpack's defaultconfigs holding the servers' config
+            SyncConfig.SERVER_ID.set("BSP-Frostwarf");
+            Sync.start(server);
+            h.assertTrue(Sync.active() == null, "the sync did not start");
+        } finally {
+            Sync.stop();
+            SyncConfig.STORAGE_MODE.set(mode);
+            SyncConfig.SERVER_ID.set(id);
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_snapshot_saved_by_a_server_outside_the_network_is_never_applied(GameTestHelper h) {
+        MinecraftServer server = h.getLevel().getServer();
+        MemoryStore store = new MemoryStore();
+        UUID id = UUID.randomUUID();
+        ServerPlayer hubPlayer = TestPlayers.mockServerPlayer(h, id);
+        hubPlayer.getInventory().setItem(0, new ItemStack(Items.DIAMOND, 4));
+        store.save(id, HUB, SaveCause.LOGOUT, PlayerSnapshotCodec.encode(PlayerSnapshotCodec.capture(hubPlayer))).join(); // v1, from the network
+        ServerPlayer solo = TestPlayers.mockServerPlayer(h, id);
+        solo.getInventory().setItem(0, new ItemStack(Items.DIRT, 64));
+        store.save(id, "solo-world", SaveCause.LOGOUT, PlayerSnapshotCodec.encode(PlayerSnapshotCodec.capture(solo))).join(); // v2, from outside
+
+        SyncService pvp = new SyncService(server, store, PVP, FAST);
+        pvp.setNetworkServers(List.of(HUB, PVP));
+        h.assertTrue(pvp.fromNetwork(HUB) && pvp.fromNetwork(PVP) && !pvp.fromNetwork("solo-world"), "the list");
+        ServerPlayer q = TestPlayers.mockServerPlayer(h, id);
+        pvp.onLogin(q, 0);
+        pvp.tick(0);
+        h.assertTrue(!SyncService.isSyncing(id), "settled");
+        h.assertTrue(q.getInventory().getItem(0).is(Items.DIAMOND) && q.getInventory().countItem(Items.DIRT) == 0, "the network's v1 was applied, not the outside v2: " + q.getInventory().getItem(0));
+        h.assertTrue(pvp.lastArrival(id).orElseThrow().version() == 1, "arrived as v1");
+        pvp.onLogout(q).join();
+
+        SyncService open = new SyncService(server, store, PVP, FAST); // no list: any server's snapshot is applied (the old behaviour)
+        h.assertTrue(open.fromNetwork("solo-world"), "an empty list accepts any server");
+        h.succeed();
     }
 
     @GameTest(template = EMPTY)

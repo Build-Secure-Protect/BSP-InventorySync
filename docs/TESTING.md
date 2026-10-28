@@ -163,3 +163,12 @@ Covered headlessly (2 new GameTests, 61 in all): the game test server, which is 
 - [ ] Set `sync.networkServers` on every backend to the full list of the network's server ids (the same list everywhere), restart, and check the log has no "sync.networkServers is empty" warning.
 - [ ] In a single-player world of the client pack (even one whose `serverconfig/bsp_inventorysync-server.toml` says `mode = "mysql"`), the log says "not a dedicated server (single player or LAN): inventory sync is off". Change your inventory there, then join the network: you arrive with your network inventory, not the single-player one.
 - [ ] `/invsync snapshots <you>` on a backend after that: no new snapshot from the single-player session.
+
+## 2026-10-28: passwords out of the server config
+
+Covered headlessly (2 new GameTests, 63 in all, run twice; and one start of the test server with a password left in the old file: the log named `storage.password` only, the value moved to the network file and was gone from the server file). On each backend:
+
+- [ ] Start the server with the new jar. If this mod had its own connection settings, the log has one warning "moved storage.... from bsp_inventorysync-server.toml to config/bsp_inventorysync-network.toml", with key names only, no password.
+- [ ] `config/bsp_inventorysync-network.toml` exists in the server's `config/` folder (not under `world/`) and holds the database and Redis settings; `world/serverconfig/bsp_inventorysync-server.toml` has empty passwords and "Moved to ..." comments.
+- [ ] `/invsync status` shows "store ping: ok" and, with Redis on, "connected"; the store line names "config/bsp_inventorysync-network.toml" or, with `useBspCoreDatabase = true`, "BSP-Core's config/bsp_core-network.toml".
+- [ ] After every BSP mod is updated, change the database and Redis passwords in the network files only, and restart.

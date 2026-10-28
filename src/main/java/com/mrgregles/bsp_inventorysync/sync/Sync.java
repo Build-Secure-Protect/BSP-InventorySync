@@ -1,6 +1,7 @@
 package com.mrgregles.bsp_inventorysync.sync;
 
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
+import com.mrgregles.bsp_inventorysync.NetworkConfig;
 import com.mrgregles.bsp_inventorysync.SyncConfig;
 import com.mrgregles.bsp_inventorysync.compat.BspCore;
 import com.mrgregles.bsp_inventorysync.storage.FastStore;
@@ -17,7 +18,7 @@ import java.util.concurrent.Executors;
 /**
  * The one {@link SyncService} of this server, or none when the server syncs nothing (D10: no shared
  * database configured, single player, a dev run). The store behind it is chosen here from the config:
- * MySQL (BSP-Core's database settings by default, this mod's own tables), with Redis in front when
+ * MySQL (BSP-Core's database by default, or this mod's own connection in config/bsp_inventorysync-network.toml; always this mod's tables), with Redis in front when
  * enabled.
  */
 public final class Sync {
@@ -67,8 +68,8 @@ public final class Sync {
         SyncStore store = jdbc;
         String redisNote = "no Redis";
         if (SyncConfig.getOr(SyncConfig.REDIS_ENABLED, false)) {
-            RedisClient.Settings rs = new RedisClient.Settings(SyncConfig.getOr(SyncConfig.REDIS_HOST, "localhost"), SyncConfig.getOr(SyncConfig.REDIS_PORT, 6379),
-                    SyncConfig.getOr(SyncConfig.REDIS_USERNAME, ""), SyncConfig.getOr(SyncConfig.REDIS_PASSWORD, ""));
+            RedisClient.Settings rs = new RedisClient.Settings(NetworkConfig.REDIS_HOST.get(), NetworkConfig.REDIS_PORT.get(),
+                    NetworkConfig.REDIS_USERNAME.get(), NetworkConfig.REDIS_PASSWORD.get());
             store = new FastStore(jdbc, new RedisClient(rs), SyncConfig.getOr(SyncConfig.REDIS_CLUSTER, "bsp"), SyncConfig.getOr(SyncConfig.REDIS_SNAPSHOT_TTL_SECONDS, 600) * 1000L);
             redisNote = rs.describe();
         }
@@ -94,7 +95,7 @@ public final class Sync {
     }
 
     /** BSP-Core's database settings when {@code storage.useBspCoreDatabase} is on, else this mod's own; always this mod's table prefix. */
-    static JdbcStore.Settings databaseSettings() {
+    public static JdbcStore.Settings databaseSettings() {
         String prefix = SyncConfig.getOr(SyncConfig.TABLE_PREFIX, "bsp_is_");
         if (SyncConfig.getOr(SyncConfig.USE_BSP_CORE_DATABASE, true)) {
             java.util.Optional<String> host = BspCore.storageSetting("STORAGE_HOST", String.class);
@@ -105,13 +106,13 @@ public final class Sync {
                         BspCore.storageSetting("STORAGE_USER", String.class).orElse("bsp"),
                         BspCore.storageSetting("STORAGE_PASSWORD", String.class).orElse(""),
                         BspCore.storageSetting("STORAGE_SSL", Boolean.class).orElse(false), prefix,
-                        "BSP-Core's bsp_core-server.toml, storage.useBspCoreDatabase = true");
+                        "BSP-Core's config/bsp_core-network.toml, storage.useBspCoreDatabase = true");
             }
-            BSPInventorySync.LOGGER.warn("BSP-InventorySync: BSP-Core's database settings could not be read; using this mod's own storage.* fields");
+            BSPInventorySync.LOGGER.warn("BSP-InventorySync: BSP-Core's database settings could not be read; using this mod's own config/bsp_inventorysync-network.toml");
         }
-        return new JdbcStore.Settings(SyncConfig.getOr(SyncConfig.DB_HOST, "localhost"), SyncConfig.getOr(SyncConfig.DB_PORT, 3306), SyncConfig.getOr(SyncConfig.DB_NAME, "bsp"),
-                SyncConfig.getOr(SyncConfig.DB_USER, "bsp"), SyncConfig.getOr(SyncConfig.DB_PASSWORD, ""), SyncConfig.getOr(SyncConfig.DB_SSL, false), prefix,
-                "this mod's bsp_inventorysync-server.toml");
+        return new JdbcStore.Settings(NetworkConfig.DB_HOST.get(), NetworkConfig.DB_PORT.get(), NetworkConfig.DB_NAME.get(),
+                NetworkConfig.DB_USER.get(), NetworkConfig.DB_PASSWORD.get(), NetworkConfig.DB_SSL.get(), prefix,
+                "this mod's config/" + NetworkConfig.FILE);
     }
 
     /**

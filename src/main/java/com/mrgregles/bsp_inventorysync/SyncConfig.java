@@ -38,6 +38,9 @@ public final class SyncConfig {
     public static final ForgeConfigSpec.IntValue ARRIVAL_TIMEOUT_SECONDS;
     public static final ForgeConfigSpec.BooleanValue KICK_ON_TIMEOUT;
 
+    /** The comment on each key whose value now lives in {@link NetworkConfig}; the key stays so that Forge keeps an old value until it is moved. */
+    static final String MOVED = "Moved to config/bsp_inventorysync-network.toml (a SERVER config is sent to every player). A value left here is moved there at the next start and cleared.";
+
     static {
         ForgeConfigSpec.Builder b = new ForgeConfigSpec.Builder();
         b.push("storage");
@@ -45,14 +48,15 @@ public final class SyncConfig {
                 .define("mode", "off");
         SERVER_ID = b.comment("This server's name on the network. Empty: use BSP-Core's storage.serverId. Must equal the Velocity server name.")
                 .define("serverId", "");
-        USE_BSP_CORE_DATABASE = b.comment("true: connect to the database BSP-Core's storage settings name (host, port, database, user, password, useSsl); the fields below are ignored. false: use the fields below.")
+        USE_BSP_CORE_DATABASE = b.comment("true: connect to the database BSP-Core's config/bsp_core-network.toml names (host, port, database, user, password, useSsl).",
+                        "false: use this mod's own config/bsp_inventorysync-network.toml.")
                 .define("useBspCoreDatabase", true);
-        DB_HOST = b.define("host", "localhost");
-        DB_PORT = b.defineInRange("port", 3306, 1, 65535);
-        DB_NAME = b.define("database", "bsp");
-        DB_USER = b.define("user", "bsp");
-        DB_PASSWORD = b.comment("Plain text, as BSP-Core's; keep the config file private.").define("password", "");
-        DB_SSL = b.define("useSsl", false);
+        DB_HOST = b.comment(MOVED).define("host", "localhost");
+        DB_PORT = b.comment(MOVED).defineInRange("port", 3306, 1, 65535);
+        DB_NAME = b.comment(MOVED).define("database", "bsp");
+        DB_USER = b.comment(MOVED).define("user", "bsp");
+        DB_PASSWORD = b.comment(MOVED).define("password", "");
+        DB_SSL = b.comment(MOVED).define("useSsl", false);
         TABLE_PREFIX = b.comment("Prefix of this mod's tables (letters, digits and underscores).").define("tablePrefix", "bsp_is_");
         SNAPSHOTS_KEPT = b.comment("How many unpinned snapshots are kept per player; pinned ones are kept for ever.").defineInRange("snapshotsKept", 16, 1, 1000);
         STORE_TIMEOUT_SECONDS = b.comment("The watchdog: a database or Redis call that takes longer than this is given up as failed, so a frozen database never leaves a player frozen.").defineInRange("timeoutSeconds", 5, 1, 120);
@@ -61,10 +65,10 @@ public final class SyncConfig {
         b.comment("Redis makes a server switch instant: the checkout and the newest snapshot are kept there too, and the database is",
                 "only the safety net. This mod has its own small Redis client; nothing is bundled. Plain connection: keep Redis on the local network.").push("redis");
         REDIS_ENABLED = b.define("enabled", false);
-        REDIS_HOST = b.define("host", "localhost");
-        REDIS_PORT = b.defineInRange("port", 6379, 1, 65535);
-        REDIS_USERNAME = b.comment("Leave empty unless Redis uses ACL users; the password alone is the usual requirepass.").define("username", "");
-        REDIS_PASSWORD = b.comment("Plain text; keep the config file private.").define("password", "");
+        REDIS_HOST = b.comment(MOVED).define("host", "localhost");
+        REDIS_PORT = b.comment(MOVED).defineInRange("port", 6379, 1, 65535);
+        REDIS_USERNAME = b.comment(MOVED).define("username", "");
+        REDIS_PASSWORD = b.comment(MOVED).define("password", "");
         REDIS_CLUSTER = b.comment("Servers that share players use the same cluster name; keys are bsp_is:<cluster>:*.").define("cluster", "bsp");
         REDIS_SNAPSHOT_TTL_SECONDS = b.comment("How long the newest snapshot stays cached in Redis after a save.").defineInRange("snapshotTtlSeconds", 600, 10, 86_400);
         b.pop();

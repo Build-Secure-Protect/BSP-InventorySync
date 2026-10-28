@@ -40,8 +40,8 @@ If you arrive on a server that does not have one of your items' mods, the item b
 
 1. Put the jar in `mods/` on every backend, next to BSP-Core 1.1.0 or newer. Clients need nothing.
 2. Start each server once. The config appears at `<world>/serverconfig/bsp_inventorysync-server.toml`.
-3. Set `storage.mode = "mysql"`. By default the database settings and this server's name are read from BSP-Core's own `storage` config, so a network already running BSP-Core on MySQL needs nothing more. Set `storage.useBspCoreDatabase = false` to give this mod its own host, user and password instead.
-4. Optional but recommended: set `redis.enabled = true` with your Redis host and password. Redis makes switches instant; without it a switch waits only for the source server's save to land in MySQL.
+3. Set `storage.mode = "mysql"`. By default the database settings and this server's name are read from BSP-Core's (its connection is in `config/bsp_core-network.toml`), so a network already running BSP-Core on MySQL needs nothing more. Set `storage.useBspCoreDatabase = false` to give this mod its own host, user and password instead: those go in `config/bsp_inventorysync-network.toml`, which stays on the server (the server config is sent to every player, so it holds no passwords).
+4. Optional but recommended: set `redis.enabled = true`, with your Redis host and password in `config/bsp_inventorysync-network.toml`. Redis makes switches instant; without it a switch waits only for the source server's save to land in MySQL.
 5. Restart, or run `/invsync reload`. The log says "tables ready on mysql ..." and, with Redis, "redis host:port connected". `/invsync status` shows the same.
 
 Every backend must point at the same database and the same Redis, and each must have a different server name that equals its Velocity server name.

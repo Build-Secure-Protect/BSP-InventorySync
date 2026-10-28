@@ -20,6 +20,7 @@ public final class BSPInventorySync {
 
     public BSPInventorySync() {
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, SyncConfig.SPEC);
+        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, NetworkConfig.SPEC, NetworkConfig.FILE); // the connection: never sent to players
         Modules.registerVanilla();
         Modules.registerAdapters();
         BspCore.install();

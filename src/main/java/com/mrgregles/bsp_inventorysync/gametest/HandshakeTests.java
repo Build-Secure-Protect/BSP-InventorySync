@@ -2,6 +2,7 @@ package com.mrgregles.bsp_inventorysync.gametest;
 
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
 import com.mrgregles.bsp_inventorysync.api.event.InventoryRestoredEvent;
+import com.mrgregles.bsp_inventorysync.data.PlayerSnapshotCodec;
 import com.mrgregles.bsp_inventorysync.compat.BspCore;
 import com.mrgregles.bsp_inventorysync.storage.MemoryStore;
 import com.mrgregles.bsp_inventorysync.storage.Presence;
@@ -77,6 +78,64 @@ public class HandshakeTests {
 
     private static Presence presence(GameTestHelper h, MemoryStore store, UUID uuid) {
         return store.presence(uuid).join().orElseThrow(() -> new AssertionError("no presence"));
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_skipped_snapshot_still_gives_one_restore_event(GameTestHelper h) {
+        MinecraftServer server = h.getLevel().getServer();
+        MemoryStore store = new MemoryStore();
+        UUID id = UUID.randomUUID();
+        ServerPlayer solo = TestPlayers.mockServerPlayer(h, id);
+        solo.getInventory().setItem(0, new ItemStack(Items.DIRT, 64));
+        store.save(id, "solo-world", SaveCause.LOGOUT, PlayerSnapshotCodec.encode(PlayerSnapshotCodec.capture(solo))).join(); // the only snapshot, from outside the network
+        SyncService pvp = new SyncService(server, store, PVP, FAST);
+        pvp.setNetworkServers(List.of(HUB, PVP));
+        Restores restores = new Restores();
+        MinecraftForge.EVENT_BUS.register(restores);
+        try {
+            ServerPlayer q = TestPlayers.mockServerPlayer(h, id);
+            pvp.onLogin(q, 0);
+            pvp.tick(0);
+            List<InventoryRestoredEvent> mine = restores.events.stream().filter(e -> e.getEntity().getUUID().equals(id)).toList(); // other tests run meanwhile
+            h.assertTrue(!SyncService.isSyncing(id), "settled");
+            h.assertTrue(mine.size() == 1 && mine.get(0).getVersion() == 0, "one version-0 event, so BSP-Core never waits for its timeout: " + mine);
+            h.assertTrue(q.getInventory().countItem(Items.DIRT) == 0, "the outside snapshot was not applied");
+            pvp.onLogout(q).join();
+        } finally {
+            MinecraftForge.EVENT_BUS.unregister(restores);
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_restore_that_throws_refuses_the_login_and_saves_nothing(GameTestHelper h) {
+        MinecraftServer server = h.getLevel().getServer();
+        MemoryStore store = new MemoryStore();
+        SyncService hub = new SyncService(server, store, HUB, FAST);
+        SyncService pvp = new SyncService(server, store, PVP, FAST);
+        UUID id = UUID.randomUUID();
+        Restores restores = new Restores();
+        MinecraftForge.EVENT_BUS.register(restores);
+        try {
+            ServerPlayer p = settled(h, hub, id, 0, new ItemStack(Items.DIAMOND, 9));
+            hub.onLogout(p).join(); // v1 on hub
+            ServerPlayer q = TestPlayers.mockServerPlayer(h, id);
+            q.getInventory().setItem(0, new ItemStack(Items.ROTTEN_FLESH)); // pvp's stale copy
+            pvp.failNextRestore(new IllegalStateException("test: a fault outside the data modules"));
+            pvp.onLogin(q, 1_000);
+            pvp.tick(1_000);
+            h.assertTrue(!SyncService.isSyncing(id), "not left frozen");
+            h.assertTrue(pvp.lastArrival(id).orElseThrow().outcome() == Arrival.Outcome.UNAVAILABLE, "refused like an unreadable store: " + pvp.lastArrival(id));
+            long onPvp = restores.events.stream().filter(e -> e.getEntity() == q).count();
+            h.assertTrue(onPvp == 0, "no restore event for a refused login");
+            pvp.onLogout(q).join(); // the refusal disconnects them
+            pvp.autosaveDue(List.of(q), 10_000_000);
+            h.assertTrue(store.history(id).join().size() == 1, "the half-restored copy was never saved over their data");
+            h.assertTrue(store.presence(id).join().map(pr -> !pr.online()).orElse(true), "released: they can join anywhere");
+        } finally {
+            MinecraftForge.EVENT_BUS.unregister(restores);
+        }
+        h.succeed();
     }
 
     @GameTest(template = EMPTY)

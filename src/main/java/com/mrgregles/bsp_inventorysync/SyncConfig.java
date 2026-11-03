@@ -74,8 +74,9 @@ public final class SyncConfig {
         b.pop();
         b.comment("What travels with the player besides the vanilla data: every mod's persistent NBT (ForgeData) and capabilities (ForgeCaps),",
                 "so mods with per-player data need no special support. List here what must stay on each server.").push("sync");
-        EXCLUDE_FORGE_DATA = b.comment("Dotted paths in the player's persistent NBT that are not synced (positions that only mean something on one server).")
-                .defineListAllowEmpty(List.of("excludeForgeData"), () -> List.of("PlayerPersisted.bsp_core:LastMainDim", "PlayerPersisted.bsp_core:LastMainPos"), o -> o instanceof String);
+        EXCLUDE_FORGE_DATA = b.comment("Dotted paths in the player's persistent NBT that are not synced (positions that only mean something on one server).",
+                        "BSP-Core's four keys below are never synced, even if removed from this list.")
+                .defineListAllowEmpty(List.of("excludeForgeData"), () -> com.mrgregles.bsp_inventorysync.data.Modules.DEFAULT_DATA_EXCLUSIONS, o -> o instanceof String);
         EXCLUDE_CAPABILITIES = b.comment("Capability ids that are not synced through the generic module. curios:inventory travels through the Curios adapter instead.")
                 .defineListAllowEmpty(List.of("excludeCapabilities"), () -> List.of("curios:inventory"), o -> o instanceof String);
         NETWORK_SERVERS = b.comment("The server ids (storage.serverId) of every backend of this network. A snapshot saved by any other server",

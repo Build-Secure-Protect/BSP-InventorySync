@@ -55,7 +55,7 @@ public final class SyncEvents {
         if (s != null) {
             s.onLogin(player, System.currentTimeMillis());
         } else {
-            MinecraftForge.EVENT_BUS.post(new InventoryRestoredEvent(player, 0, "", false, List.of(), 0));
+            SyncService.postRestored(new InventoryRestoredEvent(player, 0, "", false, List.of(), 0));
         }
     }
 

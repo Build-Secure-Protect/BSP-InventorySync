@@ -62,13 +62,36 @@ public final class Modules {
         register(new VitalsModule());
         register(new AdvancementsModule());
         register(new ForgeDataModule(
-                () -> SyncConfig.getOr(SyncConfig.EXCLUDE_FORGE_DATA, DEFAULT_DATA_EXCLUSIONS),
+                () -> withAlwaysExcluded(SyncConfig.getOr(SyncConfig.EXCLUDE_FORGE_DATA, DEFAULT_DATA_EXCLUSIONS)),
                 () -> SyncConfig.getOr(SyncConfig.EXCLUDE_CAPABILITIES, DEFAULT_CAP_EXCLUSIONS)));
     }
 
+    /**
+     * BSP-Core's keys that stay on the server that wrote them, whatever {@code sync.excludeForgeData} says:
+     * its last position in a main dimension and the server that position belongs to (meaningless anywhere
+     * else), and the totems it keeps through a death in an Anti Totem zone or on a no-totem server (live
+     * Shatter Totems, which this mod never saves).
+     */
+    public static final List<String> ALWAYS_DATA_EXCLUSIONS = List.of(
+            "PlayerPersisted.bsp_core:LastMainDim",
+            "PlayerPersisted.bsp_core:LastMainPos",
+            "PlayerPersisted.bsp_core:LastMainServer",
+            "PlayerPersisted.bsp_core:ZoneHeldTotems");
+
     /** The defaults of the exclusion lists, also used while the config is not loaded. */
-    public static final List<String> DEFAULT_DATA_EXCLUSIONS = List.of("PlayerPersisted.bsp_core:LastMainDim", "PlayerPersisted.bsp_core:LastMainPos");
+    public static final List<String> DEFAULT_DATA_EXCLUSIONS = ALWAYS_DATA_EXCLUSIONS;
     public static final List<String> DEFAULT_CAP_EXCLUSIONS = List.of("curios:inventory");
+
+    /** {@link #ALWAYS_DATA_EXCLUSIONS} followed by whatever else the config lists. */
+    public static List<String> withAlwaysExcluded(List<? extends String> configured) {
+        List<String> all = new ArrayList<>(ALWAYS_DATA_EXCLUSIONS);
+        for (String path : configured) {
+            if (!all.contains(path)) {
+                all.add(path);
+            }
+        }
+        return all;
+    }
 
     /** The adapters for the pack's item mods (D3, D12), each only when its mod is loaded. After the vanilla modules, since they read the restored inventory. */
     public static void registerAdapters() {

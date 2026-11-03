@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Inventory Editor Concepts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0B0F14; --panel: #10151C; --line: #2A2F3A;
+    --accent: #19D3B0; --violet: #B58CFF; --gold: #FFD23A; --bad: #FF6B5C;
+    --text: #E6EAF2; --muted: #9AA3B5;
+    --gui: #C6C6C6; --slot: #8B8B8B;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "IBM Plex Sans", system-ui, sans-serif; line-height: 1.5; }
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1, h2, h3 { font-family: "Silkscreen", monospace; font-weight: 700; letter-spacing: 0.5px; margin: 0; }
+  h1 { font-size: 28px; color: var(--accent); }
+  h2 { font-size: 19px; margin-bottom: 4px; }
+  h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; margin: 16px 0 6px; }
+  p { margin: 8px 0; }
+  .lede { color: var(--muted); max-width: 860px; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; color: var(--violet); }
+  .option { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; margin-top: 22px; }
+  .option.pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .tag { display: inline-block; font-family: "Silkscreen", monospace; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-left: 8px; vertical-align: middle; background: var(--accent); color: var(--bg); }
+  .screens { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
+  .screen-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .caption { font-size: 13px; color: var(--muted); max-width: 400px; }
+  /* a vanilla container screen */
+  .gui { background: var(--gui); border: 3px solid; border-color: #FFFFFF #555555 #555555 #FFFFFF; border-radius: 4px; padding: 7px 7px 8px; width: max-content; }
+  .gui .title { font-family: "Silkscreen", monospace; font-size: 11px; color: #404040; margin: 0 0 4px 1px; }
+  .grid { display: grid; grid-template-columns: repeat(9, 36px); gap: 0; }
+  .slot { width: 36px; height: 36px; background: var(--slot); border: 2px solid; border-color: #373737 #FFFFFF #FFFFFF #373737; position: relative; display: flex; align-items: center; justify-content: center; }
+  .slot .ic { width: 24px; height: 24px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-family: "Silkscreen", monospace; font-size: 8px; color: #fff; text-shadow: 1px 1px 0 #0008; }
+  .slot .n { position: absolute; right: 1px; bottom: -2px; font-family: "Silkscreen", monospace; font-size: 10px; color: #fff; text-shadow: 1px 1px 0 #3F3F3F; }
+  .slot.btn { background: #6F7D8C; }
+  .slot.hl { outline: 2px solid var(--gold); outline-offset: -2px; z-index: 1; }
+  .slot.lock::after { content: ""; position: absolute; inset: 0; background: #0006; }
+  .gap { height: 8px; }
+  .own .title { color: #6b6b6b; }
+  .own .grid { opacity: 0.55; }
+  ul.pros { padding-left: 18px; margin: 6px 0 0; font-size: 14px; }
+  ul.pros li { margin: 3px 0; }
+  .good { color: var(--accent); }
+  .meh { color: var(--gold); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .decisions ol { padding-left: 22px; }
+  .decisions li { margin: 10px 0; }
+  .decisions .d { color: var(--accent); font-weight: 600; }
+  .foot { color: var(--muted); font-size: 13px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Admin Inventory Editor Concepts</h1>
+  <p class="lede">
+    <code>/invsync edit &lt;player&gt;</code> opens the player's inventory for an operator (level 3) in vanilla chest screens sent
+    by the server, so nobody installs anything. A chest screen is at most 9 slots wide and 6 rows tall, and the viewer's own
+    inventory always sits underneath it; here that part is locked (greyed). Items taken from the list, placed, moved or
+    trashed change nothing until Save, then Confirm. Three layouts of the same parts: the player's inventory (main, hotbar,
+    armour, offhand), the ender chest, the item list, a trash slot, and the buttons.
+  </p>
+
+  <div id="options"></div>
+
+  <section class="option">
+    <h2>All options: Save, then Confirm</h2>
+    <p class="caption">Save opens this summary in place of the editor. Confirm writes the change (live, or as their newest snapshot when they are offline); Back returns to the editor with the changes still there; Cancel drops them all.</p>
+    <div class="screens" id="confirm"></div>
+  </section>
+
+  <div class="legend" id="legend"></div>
+
+  <section class="option decisions">
+    <h2>Decisions</h2>
+    <ol>
+      <li><b>Layout.</b> A, B or C. <span class="d">Default: C, tabs and a toolbar</span>: one screen, the trash and Save always in reach, the full item list one click away, and the item on your cursor stays on it when you switch tabs.</li>
+      <li><b>Taking from the item list.</b> <span class="d">Default: left-click takes a full stack, right-click takes one, shift-click puts a full stack into the first free slot of the player's inventory</span>, as in the creative inventory.</li>
+      <li><b>Trash.</b> <span class="d">Default: clicking the trash slot with an item on the cursor deletes it</span>; nothing is final until Confirm, and Cancel puts everything back.</li>
+      <li><b>Shatter Totems</b> (your answer: admins may trash them). A totem the player holds can be moved and trashed like any item; the item list still never offers totems. <span class="d">Default: trashing one is told to BSP-Core (request R8) so its ledger records it as destroyed and never hands it out again</span>.</li>
+      <li><b>Empty armour and offhand slots.</b> <span class="d">Default: shown as grey glass panes named Helmet, Chestplate, Leggings, Boots, Offhand</span>, which disappear when an item is placed.</li>
+      <li><b>Button items.</b> <span class="d">Default: tabs are a chest (Inventory), an ender chest (Ender chest) and a compass (Items); page arrows are arrows; the page number is paper; Trash is a cauldron; Save is lime concrete, Cancel red concrete, Confirm lime concrete, Back yellow concrete</span>.</li>
+      <li><b>Search.</b> <span class="d">Default: <code>/invsync edit &lt;player&gt; &lt;word&gt;</code> opens the Items tab filtered to names containing the word</span>; without a word, the list starts at the first creative tab.</li>
+    </ol>
+  </section>
+
+  <p class="foot">
+    Already decided (2026-11-02): vanilla chest screens; edits live when the player is on your server, as their newest snapshot when
+    offline, refused when they are on another server; a change to their data while you edit refuses the save; main inventory,
+    hotbar, armour, offhand and ender chest; every item and block, by creative tab, with search; operator level 3; the snapshot
+    before an edit is pinned, the edit saved as an admin snapshot and logged; your own inventory locked; <code>/invsync edit &lt;player&gt;</code>.
+    Item icons here are coloured tiles with short labels; in game they are the real items.
+  </p>
+</main>
+
+<script>
+// Item tiles: colour and a short label. In game these are the real items.
+const IT = {
+  dia: ["#3FD0D4", "DIA", "Diamond"], ds: ["#4FB8C9", "SWD", "Diamond sword"], dp: ["#4FB8C9", "PCK", "Diamond pickaxe"],
+  br: ["#B5803A", "BRD", "Bread"], st: ["#7D7D7D", "STN", "Stone"], tch: ["#E8B341", "TCH", "Torch"], ob: ["#2B1F3B", "OBS", "Obsidian"],
+  oak: ["#A0773D", "OAK", "Oak planks"], ir: ["#D8D8D8", "IRN", "Iron ingot"], gl: ["#A9D8E8", "GLS", "Glass"], bk: ["#8E3B2E", "BRK", "Bricks"],
+  hel: ["#5DE0E6", "HLM", "Diamond helmet"], chp: ["#5DE0E6", "CHP", "Diamond chestplate"], leg: ["#5DE0E6", "LEG", "Diamond leggings"], bts: ["#5DE0E6", "BTS", "Diamond boots"],
+  shd: ["#8A6A3A", "SHD", "Shield"], tot: ["#C9A227", "TOT", "Shatter Totem"], bp: ["#7A4E2D", "BPK", "Backpack"], cn: ["#E0B000", "COI", "Shatter Coin"],
+  pane: ["#9A9A9A", "", "Empty: Helmet / Chestplate / Leggings / Boots / Offhand"],
+  // buttons
+  tInv: ["#8B5A2B", "INV", "Tab: Inventory"], tEnd: ["#163B3B", "END", "Tab: Ender chest"], tIt: ["#B03A2E", "ITM", "Tab: Items"],
+  prev: ["#6B6B6B", "<", "Previous page"], next: ["#6B6B6B", ">", "Next page"], page: ["#E9E4D2", "2/14", "Page 2 of 14 (paper)"],
+  cat: ["#5A6B8C", "TAB", "Creative tab: Building blocks"], trash: ["#4A4A4A", "BIN", "Trash (cauldron)"],
+  save: ["#6CC24A", "SAVE", "Save (lime concrete)"], cancel: ["#C2453A", "X", "Cancel (red concrete)"], back: ["#E2C33A", "BACK", "Back (yellow concrete)"],
+  ok: ["#6CC24A", "OK", "Confirm (lime concrete)"], plus: ["#2E7D32", "+", "Added"], minus: ["#8E2B2B", "-", "Removed"],
+  fill: ["#3A3A3A", "", "Filler (black glass pane)"]
+};
+
+function slot(s) {
+  if (!s) return '<div class="slot"></div>';
+  const [k, n, cls] = s;
+  const it = IT[k];
+  return `<div class="slot ${cls || ""}" title="${it[2]}"><div class="ic" style="background:${it[0]}">${it[1]}</div>${n ? `<span class="n">${n}</span>` : ""}</div>`;
+}
+function gui(title, rows, extra) {
+  return `<div class="gui ${extra || ""}"><div class="title">${title}</div><div class="grid">${rows.flat().map(slot).join("")}</div></div>`;
+}
+const E = null;
+const B = k => [k, 0, "btn"];
+const own = () => gui("Your inventory (locked)", [
+  [["st", 64], ["oak", 32], E, E, ["tch", 16], E, E, E, E],
+  [E, E, E, E, E, E, E, E, E], [E, E, E, E, E, E, E, E, E],
+  [["ds"], ["dp"], ["br", 12], E, E, E, E, E, ["cn", 3]]], "own");
+const pane = () => ["pane", 0, "btn"];
+const fill = () => ["fill", 0, "btn"];
+
+// the target's inventory: 27 main + 9 hotbar
+const MAIN = [
+  [["st", 64], ["st", 64], ["oak", 40], E, ["ob", 12], E, E, ["gl", 32], E],
+  [E, ["ir", 23], E, E, ["bp"], E, E, E, E],
+  [["bk", 64], E, E, E, E, E, ["tch", 48], E, E]];
+const HOTBAR = [["ds"], ["dp"], ["br", 20], ["tot", 0, "hl"], E, E, E, ["cn", 7], ["dia", 5]];
+const ARMOUR = [["hel"], ["chp"], pane(), ["bts"], ["shd"]];
+const LIST = [
+  ["st","oak","bk","gl","ob","st","oak","bk","gl"], ["ob","st","oak","bk","gl","ob","st","oak","bk"],
+  ["gl","ob","st","oak","bk","gl","ob","st","oak"], ["bk","gl","ob","st","oak","bk","gl","ob","st"],
+  ["oak","bk","gl","ob","st","oak","bk","gl","ob"]].map(r => r.map(k => [k, 0]));
+const ENDER = [
+  [["dia", 64], ["dia", 64], E, E, E, E, E, E, E], [E, E, ["ir", 64], E, E, E, E, E, E], [E, E, E, E, E, E, E, E, ["cn", 40]]];
+
+const OPTIONS = [
+  {
+    title: "A: Two screens", cls: "",
+    screens: [
+      [gui("Editing Steve", [...MAIN, HOTBAR, [...ARMOUR, fill(), B("tEnd"), B("tIt"), B("trash")], [fill(), fill(), fill(), fill(), fill(), fill(), fill(), B("cancel"), B("save")]]) + own(),
+       "The editor. Items opens the picker screen; Ender chest swaps to the ender chest."],
+      [gui("Items: Building blocks", [...LIST, [B("prev"), B("cat"), B("page"), B("next"), fill(), fill(), fill(), B("trash"), B("back")]]) + own(),
+       "The picker: take an item, then Back carries it on the cursor to the editor to place."]
+    ],
+    pros: [["good", "The player's whole inventory and armour on one screen, laid out like the real one."],
+           ["meh", "Two screens: every item fetched means a trip to the picker and back."],
+           ["meh", "Swapping screens closes and reopens the chest, which flickers and can drop the cursor item if the server is slow."]]
+  },
+  {
+    title: "B: One screen with an item strip", cls: "",
+    screens: [
+      [gui("Editing Steve", [...MAIN, HOTBAR, [...ARMOUR, B("tEnd"), B("trash"), B("cancel"), B("save")], [B("prev"), ["st", 0], ["oak", 0], ["bk", 0], ["gl", 0], ["ob", 0], ["tch", 0], ["ir", 0], B("next")]]) + own(),
+       "Everything on one screen: the bottom row is a strip of 7 items from the list, with arrows to scroll it."]
+    ],
+    pros: [["good", "No switching at all: take from the strip, drop into the inventory."],
+           ["meh", "Only 7 items visible at a time; finding a block means a lot of scrolling or a search word."],
+           ["meh", "No room for the creative-tab button or the page number."]]
+  },
+  {
+    title: "C: Tabs and a toolbar", cls: "pick", tag: true,
+    screens: [
+      [gui("Editing Steve: Inventory", [...MAIN, HOTBAR, [...ARMOUR, fill(), fill(), fill(), fill()], [B("tInv"), B("tEnd"), B("tIt"), fill(), fill(), fill(), B("trash"), B("cancel"), B("save")]]) + own(),
+       "The Inventory tab: main, hotbar, armour and offhand, as in A."],
+      [gui("Editing Steve: Items (Building blocks)", [...LIST, [B("tInv"), B("tEnd"), B("tIt"), B("prev"), B("page"), B("next"), B("trash"), B("cancel"), B("save")]]) + own(),
+       "The Items tab: 45 items a page; the toolbar keeps Trash and Save in reach. Click Items again to step to the next creative tab."],
+      [gui("Editing Steve: Ender chest", [...ENDER, [E, E, E, E, E, E, E, E, E], [fill(), fill(), fill(), fill(), fill(), fill(), fill(), fill(), fill()], [B("tInv"), B("tEnd"), B("tIt"), fill(), fill(), fill(), B("trash"), B("cancel"), B("save")]]) + own(),
+       "The Ender chest tab: its 27 slots."]
+    ],
+    pros: [["good", "One screen that never closes: the item on your cursor stays on it when you switch tabs."],
+           ["good", "Trash, Cancel and Save always in the same place; 45 items a page in the list."],
+           ["meh", "Inventory and list are not visible at the same time (a chest screen cannot show both and the armour)."]]
+  }
+];
+
+document.getElementById("options").innerHTML = OPTIONS.map(o => `
+  <section class="option ${o.cls}">
+    <h2>${o.title}${o.tag ? '<span class="tag">DEFAULT</span>' : ""}</h2>
+    <div class="screens">${o.screens.map(([html, cap]) => `<div class="screen-wrap">${html}<div class="caption">${cap}</div></div>`).join("")}</div>
+    <h3>Trade-offs</h3>
+    <ul class="pros">${o.pros.map(([c, t]) => `<li class="${c}">${t}</li>`).join("")}</ul>
+  </section>`).join("");
+
+document.getElementById("confirm").innerHTML = `<div class="screen-wrap">${gui("Confirm changes to Steve", [
+  [B("plus"), ["dia", 32], ["oak", 64], ["tch", 16], E, E, E, E, E],
+  [B("minus"), ["ds"], ["tot"], ["cn", 7], E, E, E, E, E],
+  [fill(), fill(), fill(), B("back"), fill(), B("cancel"), fill(), fill(), B("ok")]])}<div class="caption">Added in the first row, removed in the second (here: a sword, a Shatter Totem and 7 coins trashed). Hover shows the slot each change is in.</div></div>`;
+
+document.getElementById("legend").innerHTML = [
+  ["#3FD0D4", "An item (coloured tile, short label)"], ["#6F7D8C", "A button"], ["#3A3A3A", "Filler"], ["#9A9A9A", "Empty armour or offhand slot"]
+].map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join("") + '<span><i style="outline:2px solid #FFD23A; background:#C9A227"></i>A Shatter Totem the player holds</span>';
+</script>
+</body>
+</html>

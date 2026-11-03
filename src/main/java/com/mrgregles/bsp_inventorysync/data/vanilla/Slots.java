@@ -9,7 +9,7 @@ import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 
 /** A container's slots as a list of {@code {Slot, Item}} compounds; empty and excluded slots are left out. */
-final class Slots {
+public final class Slots {
     private static final String SLOT = "Slot";
     private static final String ITEM = "Item";
 
@@ -28,6 +28,26 @@ final class Slots {
             list.add(entry);
         }
         return list;
+    }
+
+    /** Slots as a list of stacks (the editor's working copy), in the same form as {@link #save}. */
+    public static ListTag toTag(java.util.List<ItemStack> slots) {
+        net.minecraft.world.SimpleContainer c = new net.minecraft.world.SimpleContainer(slots.size());
+        for (int i = 0; i < slots.size(); i++) {
+            c.setItem(i, slots.get(i));
+        }
+        return save(c);
+    }
+
+    /** A saved list as {@code size} stacks (empty where nothing was saved); unknown items become placeholders. */
+    public static java.util.List<ItemStack> fromTag(ListTag list, int size) {
+        net.minecraft.world.SimpleContainer c = new net.minecraft.world.SimpleContainer(size);
+        load(c, list);
+        java.util.List<ItemStack> out = new java.util.ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            out.add(c.getItem(i));
+        }
+        return out;
     }
 
     /** Clears the container and fills the listed slots; slots beyond the container's size are dropped. */

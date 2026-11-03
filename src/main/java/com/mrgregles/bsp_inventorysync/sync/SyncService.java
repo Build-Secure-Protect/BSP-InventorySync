@@ -113,9 +113,15 @@ public final class SyncService {
     private volatile long autosaveMs = 60_000;
     private volatile long storeTimeoutMs = 5_000;
     private volatile long skippedAutosaves, writtenAutosaves, storeTimeouts;
+    /** {@code sync.networkServers} as written, and lower-cased for matching. */
     private volatile Set<String> networkServers = Set.of();
+    private volatile Set<String> networkServersLower = Set.of();
+    /** Server ids already warned about for matching the list only when case is ignored (once each). */
+    private final Set<String> caseWarned = ConcurrentHashMap.newKeySet();
     /** Where snapshots are compressed and decompressed: one background thread on a real server, the calling thread in tests. */
     private volatile Executor codec = Runnable::run;
+    /** See {@link #failNextRestore}. */
+    @Nullable private volatile RuntimeException restoreFault;
 
     public SyncService(MinecraftServer server, SyncStore store, String serverId) {
         this(server, store, serverId, ArrivalPolicy.DEFAULT);
@@ -275,17 +281,38 @@ public final class SyncService {
 
     /**
      * The server ids of this network ({@code sync.networkServers}); empty means any. This server's own id
-     * always counts.
+     * always counts. Ids are matched ignoring case, as Velocity matches its server names: a list entry
+     * "BSP-Saferoom" stands for the server "BSP-SafeRoom", with a warning, since the difference is a typo.
      */
     public void setNetworkServers(Collection<? extends String> ids) {
         Set<String> copy = Set.copyOf(ids);
         networkServers = copy;
+        networkServersLower = copy.stream().map(SyncService::lower).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        caseWarned.clear();
+        for (String id : copy) {
+            if (!id.equals(serverId) && id.equalsIgnoreCase(serverId)) {
+                BSPInventorySync.LOGGER.warn("BSP-InventorySync: sync.networkServers lists \"{}\" but this server's id is \"{}\"; matched ignoring case, but correct the spelling", id, serverId);
+            }
+        }
     }
 
     /** Whether a snapshot saved by {@code source} may be applied here. */
     public boolean fromNetwork(String source) {
         Set<String> ids = networkServers;
-        return ids.isEmpty() || ids.contains(source) || serverId.equals(source);
+        if (ids.isEmpty() || ids.contains(source) || serverId.equalsIgnoreCase(source)) {
+            return true;
+        }
+        if (!networkServersLower.contains(lower(source))) {
+            return false;
+        }
+        if (caseWarned.add(source)) {
+            BSPInventorySync.LOGGER.warn("BSP-InventorySync: snapshots saved by \"{}\" match sync.networkServers only when case is ignored; they are applied, but correct the spelling in the list", source);
+        }
+        return true;
+    }
+
+    private static String lower(String id) {
+        return id.toLowerCase(java.util.Locale.ROOT);
     }
 
     /**
@@ -293,7 +320,7 @@ public final class SyncService {
      * or a world pointed at the same database by mistake) is passed over, logged, and the newest from a
      * network server used instead; empty when there is none.
      */
-    CompletableFuture<Optional<Snapshot>> networkLatest(UUID player) {
+    public CompletableFuture<Optional<Snapshot>> networkLatest(UUID player) {
         return store.latest(player).thenCompose(latest -> {
             if (latest.isEmpty() || fromNetwork(latest.get().serverId())) {
                 return CompletableFuture.completedFuture(latest);
@@ -416,16 +443,42 @@ public final class SyncService {
     /** As {@link #restore(ServerPlayer, Snapshot, boolean)} with the snapshot already decompressed. */
     public Restored restore(ServerPlayer player, Snapshot snapshot, CompoundTag tag, boolean fallback) {
         List<ItemStack> totems = BspCore.takeLiveTotems(player);
-        PlayerSnapshotCodec.Result result = PlayerSnapshotCodec.apply(player, tag, new com.mrgregles.bsp_inventorysync.data.RestoreContext(snapshot.serverId(), serverId));
-        lastSavedTag.put(player.getUUID(), tag);
-        for (ItemStack totem : totems) {
-            BspCore.giveBack(player, totem);
+        PlayerSnapshotCodec.Result result;
+        try {
+            RuntimeException fault = restoreFault;
+            if (fault != null) {
+                restoreFault = null;
+                throw fault;
+            }
+            result = PlayerSnapshotCodec.apply(player, tag, new com.mrgregles.bsp_inventorysync.data.RestoreContext(snapshot.serverId(), serverId));
+            lastSavedTag.put(player.getUUID(), tag);
+        } finally {
+            for (ItemStack totem : totems) { // also when the restore failed: the player keeps what BSP-Core handed back
+                BspCore.giveBack(player, totem);
+            }
         }
         if (!totems.isEmpty()) {
             BSPInventorySync.LOGGER.info("BSP-InventorySync: {} held {} totem(s) during the restore; given back", player.getGameProfile().getName(), totems.size());
         }
-        MinecraftForge.EVENT_BUS.post(new InventoryRestoredEvent(player, snapshot.version(), snapshot.serverId(), fallback, result.failed(), totems.size()));
+        postRestored(new InventoryRestoredEvent(player, snapshot.version(), snapshot.serverId(), fallback, result.failed(), totems.size()));
         return new Restored(snapshot.version(), snapshot.serverId(), result, totems.size());
+    }
+
+    /**
+     * Posts the restore event. A listener that throws is logged and the login goes on: the restore itself
+     * has been applied, and other listeners (BSP-Core's login settle) still need the event.
+     */
+    static void postRestored(InventoryRestoredEvent event) {
+        try {
+            MinecraftForge.EVENT_BUS.post(event);
+        } catch (RuntimeException | LinkageError e) {
+            BSPInventorySync.LOGGER.error("BSP-InventorySync: a listener of the restore event failed for {}", event.getEntity().getGameProfile().getName(), e);
+        }
+    }
+
+    /** GameTests: the next restore throws this before applying anything, standing in for a fault outside the data modules. */
+    public void failNextRestore(RuntimeException fault) {
+        restoreFault = fault;
     }
 
     /**
@@ -441,7 +494,7 @@ public final class SyncService {
                     if (latest.isPresent()) {
                         out.complete(Optional.of(restore(player, latest.get(), false)));
                     } else {
-                        MinecraftForge.EVENT_BUS.post(new InventoryRestoredEvent(player, 0, "", false, List.of(), 0));
+                        postRestored(new InventoryRestoredEvent(player, 0, "", false, List.of(), 0));
                         out.complete(Optional.empty());
                     }
                 } catch (Throwable t) {
@@ -595,23 +648,34 @@ public final class SyncService {
         lastSaveAt.put(id, now); // the auto-save interval counts from the arrival
         long version = 0;
         List<String> failedModules = List.of();
-        try {
-            if (loaded != null) {
-                p.player.inventoryMenu.getCraftSlots().clearContent();
-                p.player.inventoryMenu.slotsChanged(p.player.inventoryMenu.getCraftSlots());
-                Restored r = restore(p.player, loaded.snapshot(), loaded.tag(), fallback);
-                version = r.version();
-                failedModules = r.modules().failed();
-                float health = VitalsModule.savedHealth(PlayerSnapshotCodec.module(loaded.tag(), VitalsModule.ID));
-                if (health > p.player.getHealth()) {
-                    healthLater.put(id, new HealthLater(p.player, health, server.getTickCount() + 2)); // capped by a maximum that gear has not raised yet
-                }
-            } else {
-                MinecraftForge.EVENT_BUS.post(new InventoryRestoredEvent(p.player, 0, "", fallback, List.of(), 0));
+        if (loaded != null) {
+            p.player.inventoryMenu.getCraftSlots().clearContent();
+            p.player.inventoryMenu.slotsChanged(p.player.inventoryMenu.getCraftSlots());
+            Restored r;
+            try {
+                r = restore(p.player, loaded.snapshot(), loaded.tag(), fallback);
+            } catch (RuntimeException | LinkageError e) {
+                // half applied, or not at all: letting them play would mean saving that over their real data later.
+                // Refused as an unreadable store is; the restore event is not posted, and BSP-Core drops its wait at the logout.
+                BSPInventorySync.LOGGER.error("BSP-InventorySync: the restore of {}'s v{} failed; refusing the login so nothing of theirs is saved here",
+                        p.player.getGameProfile().getName(), loaded.snapshot().version(), e);
+                noSave.add(id);
+                lastSavedTag.remove(id);
+                lastSaveAt.remove(id);
+                arrivals.put(id, new Arrival(id, Arrival.Outcome.UNAVAILABLE, 0, now - p.started));
+                p.player.connection.disconnect(Component.literal("Your items could not be loaded from the network. Nothing was changed: please rejoin in a minute."));
+                return;
             }
-        } finally {
-            arrivals.put(id, new Arrival(id, outcome, version, now - p.started));
+            version = r.version();
+            failedModules = r.modules().failed();
+            float health = VitalsModule.savedHealth(PlayerSnapshotCodec.module(loaded.tag(), VitalsModule.ID));
+            if (health > p.player.getHealth()) {
+                healthLater.put(id, new HealthLater(p.player, health, server.getTickCount() + 2)); // capped by a maximum that gear has not raised yet
+            }
+        } else {
+            postRestored(new InventoryRestoredEvent(p.player, 0, "", fallback, List.of(), 0));
         }
+        arrivals.put(id, new Arrival(id, outcome, version, now - p.started));
         if (fallback) {
             p.player.displayClientMessage(Component.literal("Your items may be out of date: the server you came from did not answer in time. Tell an admin if anything is missing.").withStyle(ChatFormatting.GOLD), false);
         }

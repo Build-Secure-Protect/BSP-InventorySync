@@ -21,6 +21,7 @@ import com.mrgregles.bsp_inventorysync.sync.SyncService;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -154,6 +155,71 @@ public class SafetyTests {
 
         SyncService open = new SyncService(server, store, PVP, FAST); // no list: any server's snapshot is applied (the old behaviour)
         h.assertTrue(open.fromNetwork("solo-world"), "an empty list accepts any server");
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_network_server_id_spelled_in_another_case_still_counts(GameTestHelper h) {
+        MinecraftServer server = h.getLevel().getServer();
+        MemoryStore store = new MemoryStore();
+        UUID id = UUID.randomUUID();
+        ServerPlayer from = TestPlayers.mockServerPlayer(h, id);
+        from.getInventory().setItem(0, new ItemStack(Items.DIAMOND, 4));
+        store.save(id, "BSP-SafeRoom", SaveCause.LOGOUT, PlayerSnapshotCodec.encode(PlayerSnapshotCodec.capture(from))).join(); // v1
+
+        SyncService pvp = new SyncService(server, store, PVP, FAST);
+        pvp.setNetworkServers(List.of("BSP-Saferoom", PVP)); // the typo on the live network
+        h.assertTrue(pvp.fromNetwork("BSP-SafeRoom") && pvp.fromNetwork("bsp-saferoom"), "matched ignoring case");
+        h.assertTrue(!pvp.fromNetwork("BSP-Safe") && !pvp.fromNetwork("solo-world"), "other ids still refused");
+        ServerPlayer q = TestPlayers.mockServerPlayer(h, id);
+        pvp.onLogin(q, 0);
+        pvp.tick(0);
+        h.assertTrue(q.getInventory().getItem(0).is(Items.DIAMOND) && pvp.lastArrival(id).orElseThrow().version() == 1, "SafeRoom's v1 was applied: " + pvp.lastArrival(id));
+        pvp.onLogout(q).join();
+
+        SyncService safeRoom = new SyncService(server, store, "BSP-SafeRoom", FAST);
+        safeRoom.setNetworkServers(List.of(HUB));
+        h.assertTrue(safeRoom.fromNetwork("bsp-saferoom"), "this server's own id counts ignoring case");
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void bsp_cores_own_keys_never_travel_even_when_the_config_list_is_empty(GameTestHelper h) {
+        List<String> keys = List.of("bsp_core:LastMainDim", "bsp_core:LastMainPos", "bsp_core:LastMainServer", "bsp_core:ZoneHeldTotems");
+        h.assertTrue(SyncConfig.EXCLUDE_FORGE_DATA.getDefault().containsAll(keys.stream().map(k -> "PlayerPersisted." + k).toList()), "the default list shows all four");
+        List<? extends String> configured = SyncConfig.EXCLUDE_FORGE_DATA.get();
+        try {
+            SyncConfig.EXCLUDE_FORGE_DATA.set(List.of());
+            ListTag held = new ListTag();
+            held.add(new ItemStack(Items.TOTEM_OF_UNDYING).save(new CompoundTag()));
+            ServerPlayer from = TestPlayers.mockServerPlayer(h, UUID.randomUUID());
+            CompoundTag bsp = new CompoundTag();
+            bsp.putString("bsp_core:LastMainDim", "minecraft:overworld");
+            bsp.putLong("bsp_core:LastMainPos", 42L);
+            bsp.putString("bsp_core:LastMainServer", "BSP-Frostwarf");
+            bsp.put("bsp_core:ZoneHeldTotems", held);
+            bsp.putInt("bsp_core:Other", 7); // BSP-Core's other keys still travel
+            from.getPersistentData().put("PlayerPersisted", bsp);
+            CompoundTag snapshot = PlayerSnapshotCodec.capture(from);
+            CompoundTag saved = PlayerSnapshotCodec.module(snapshot, ForgeDataModule.ID).getCompound("Data").getCompound("PlayerPersisted");
+            for (String key : keys) {
+                h.assertTrue(!saved.contains(key), key + " was not saved: " + saved);
+            }
+            h.assertTrue(saved.getInt("bsp_core:Other") == 7, "the rest was saved: " + saved);
+
+            ServerPlayer to = TestPlayers.mockServerPlayer(h, UUID.randomUUID());
+            CompoundTag local = new CompoundTag();
+            local.putString("bsp_core:LastMainServer", "BSP-Moongrove");
+            local.put("bsp_core:ZoneHeldTotems", held.copy());
+            to.getPersistentData().put("PlayerPersisted", local);
+            PlayerSnapshotCodec.apply(to, snapshot);
+            CompoundTag after = to.getPersistentData().getCompound("PlayerPersisted");
+            h.assertTrue(after.getString("bsp_core:LastMainServer").equals("BSP-Moongrove") && after.getList("bsp_core:ZoneHeldTotems", Tag.TAG_COMPOUND).size() == 1,
+                    "this server kept its own: " + after);
+            h.assertTrue(after.getInt("bsp_core:Other") == 7, "and took the rest: " + after);
+        } finally {
+            SyncConfig.EXCLUDE_FORGE_DATA.set(configured);
+        }
         h.succeed();
     }
 

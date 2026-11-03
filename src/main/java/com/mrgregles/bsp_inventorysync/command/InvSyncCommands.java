@@ -3,6 +3,7 @@ package com.mrgregles.bsp_inventorysync.command;
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.LongArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
 import com.mrgregles.bsp_inventorysync.sync.Sync;
@@ -27,7 +28,8 @@ import java.util.function.Function;
 /**
  * {@code /invsync} for operators (permission level 2): {@code status}, {@code reload}, {@code save <player>},
  * {@code resync <player>}, {@code dump <player>}, {@code snapshots <player>}, {@code restore <player> <version>},
- * {@code pin <player> <version>}, {@code unpin <player> <version>}. Players are named as in vanilla
+ * {@code pin <player> <version>}, {@code unpin <player> <version>}; and, for level 3, {@code edit <player> [word]}
+ * (the inventory editor). Players are named as in vanilla
  * commands (names, selectors, known offline players). Replies come on the server thread when the
  * store answers.
  */
@@ -44,6 +46,9 @@ public final class InvSyncCommands {
         dispatcher.register(Commands.literal("invsync")
                 .requires(src -> src.hasPermission(2))
                 .then(Commands.literal("status").executes(ctx -> withService(ctx, AdminActions::status)))
+                .then(Commands.literal("edit").requires(src -> src.hasPermission(3)).then(Commands.argument("player", GameProfileArgument.gameProfile())
+                        .executes(ctx -> edit(ctx, null))
+                        .then(Commands.argument("search", StringArgumentType.greedyString()).executes(ctx -> edit(ctx, StringArgumentType.getString(ctx, "search"))))))
                 .then(Commands.literal("reload").executes(InvSyncCommands::reload))
                 .then(Commands.literal("save").then(Commands.argument("player", GameProfileArgument.gameProfile())
                         .executes(ctx -> withOnlinePlayer(ctx, AdminActions::save))))
@@ -113,6 +118,34 @@ public final class InvSyncCommands {
             }
             return action.apply(s, player);
         });
+    }
+
+    /** {@code /invsync edit <player> [word]}: opens the editor for a player online on this server, or on the newest snapshot of one who is offline (operators of level 3). */
+    private static int edit(CommandContext<CommandSourceStack> ctx, String word) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerPlayer admin = ctx.getSource().getPlayerOrException();
+        Collection<GameProfile> profiles = GameProfileArgument.getGameProfiles(ctx, "player");
+        if (profiles.size() != 1) {
+            reply(ctx.getSource(), List.of("name one player"), false);
+            return 0;
+        }
+        GameProfile profile = profiles.iterator().next();
+        ServerPlayer target = ctx.getSource().getServer().getPlayerList().getPlayer(profile.getId());
+        if (target == null) {
+            // not here: their newest snapshot, unless they are online on another server (edit them there)
+            com.mrgregles.bsp_inventorysync.editor.EditorActions.openOffline(admin, profile.getId(), profile.getName(), word, Sync.active())
+                    .thenAccept(refused -> ctx.getSource().getServer().execute(() -> {
+                        if (refused != null) {
+                            reply(ctx.getSource(), List.of(refused), false);
+                        }
+                    }));
+            return 1;
+        }
+        String refused = com.mrgregles.bsp_inventorysync.editor.EditorActions.open(admin, target, word);
+        if (refused != null) {
+            reply(ctx.getSource(), List.of(refused), false);
+            return 0;
+        }
+        return 1;
     }
 
     private static int reload(CommandContext<CommandSourceStack> ctx) {

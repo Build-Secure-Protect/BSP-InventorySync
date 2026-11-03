@@ -172,3 +172,38 @@ Covered headlessly (2 new GameTests, 63 in all, run twice; and one start of the 
 - [ ] `config/bsp_inventorysync-network.toml` exists in the server's `config/` folder (not under `world/`) and holds the database and Redis settings; `world/serverconfig/bsp_inventorysync-server.toml` has empty passwords and "Moved to ..." comments.
 - [ ] `/invsync status` shows "store ping: ok" and, with Redis on, "connected"; the store line names "config/bsp_inventorysync-network.toml" or, with `useBspCoreDatabase = true`, "BSP-Core's config/bsp_core-network.toml".
 - [ ] After every BSP mod is updated, change the database and Redis passwords in the network files only, and restart.
+
+## 2026-11-02: ED-1 the inventory editor (players on the same server)
+
+Covered headlessly (8 GameTests in `gametest/EditorTests`, 71 in all, run twice): list to inventory only on Confirm; the admin's own inventory locked against click, shift-click, number key, throw and outside clicks, and the cursor dropped on close; the list never replaces an item taken from the player; armour slots take only what can be worn there; a totem can be trashed and is never offered; Confirm refused after the player's inventory changed; the before-state pinned and the edit saved as an admin snapshot; search. Not covered headlessly: how the real client shows the screen and handles fast clicks. On a backend, as an operator of level 3, with a second account online on the same server:
+
+- [ ] `/invsync edit <name>` opens "Editing <name>": the inventory tab shows their main inventory, hotbar, armour (empty slots as grey panes named Helmet, Chestplate, Leggings, Boots, Offhand) and the toolbar.
+- [ ] Items tab: 45 items a page, arrows turn pages, clicking Items again moves to the next creative tab; left-click takes a stack, right-click one, shift-click puts a stack straight into their inventory.
+- [ ] Move items around their inventory, trash one, put armour on (non-armour is refused). Your own inventory below cannot be touched (clicks, shift-clicks, number keys do nothing).
+- [ ] Close the screen while holding an item: it is gone, not in your inventory; nothing changed for the player.
+- [ ] Save: the Added and Removed rows match; Back returns with the changes; Confirm: the player sees the change at once; chat says what changed and, a moment later, the snapshot versions; the server log has one "edited <name>'s inventory" line.
+- [ ] `/invsync restore <name> <the pinned version>` undoes it.
+- [ ] Open the editor, let the player pick something up, then Confirm: refused with "changed while you edited", nothing changed.
+- [ ] `/invsync edit <name> diamond`: the Items tab opens on items containing "diamond"; no Shatter Totem is ever in the list.
+- [ ] An operator of level 2 does not see `edit`; `/invsync edit <yourself>` is refused; a player who is offline or on another server gets "not online on this server".
+
+## 2026-11-02: ED-2 editing players who are offline or on another server
+
+Covered headlessly (3 more GameTests in `gametest/EditorTests`, 74 in all, run twice): an offline edit becomes the newest admin snapshot, pins the one it started from, keeps the ender chest, every other module and an unknown mod's item, and releases the checkout; it is refused if the player came online or a newer snapshot was saved; the editor will not open on a player online on another server, on a player with no data, or with the sync off. On two backends with the sync on:
+
+- [ ] With a player logged out, `/invsync edit <name>`: the title says "(offline)", chat says which version and server it opened; their last inventory is shown.
+- [ ] Change something and Confirm: chat says "Changed <name>'s saved inventory" and the versions; `/invsync snapshots <name>` shows a new `admin` snapshot and the one before pinned.
+- [ ] The player logs in on either server: they have the change.
+- [ ] With the player online on the other backend, `/invsync edit <name>` answers "<name> is on <server>; edit them there."
+- [ ] Open the offline editor, let the player log in somewhere, then Confirm: refused ("came online ... while you edited"), nothing changed.
+
+
+## 2026-11-02: BSP-Core audit, server ids, BSP-Core keys, failed restores
+
+Covered headlessly (4 new GameTests, 78 in all, run twice): a list entry "BSP-Saferoom" matches snapshots saved by "BSP-SafeRoom" (and this server's own id counts in any case), other ids are still refused; with `sync.excludeForgeData` empty, BSP-Core's `LastMainDim`, `LastMainPos`, `LastMainServer` and `ZoneHeldTotems` are neither saved nor overwritten while its other keys travel; a player whose only snapshot comes from outside the network gets exactly one version-0 restore event; a restore that throws refuses the login, posts no event, saves nothing and releases the checkout. Not tested in game or on two real servers.
+
+- [ ] On all 7 servers, in `<world>/serverconfig/bsp_inventorysync-server.toml` under `[sync]`, set `networkServers = ["BSP-SafeRoom", "BSP-Spawn", "BSP-Sanctuary", "BSP-Frostwarf", "BSP-Boulderbrook", "BSP-Moongrove", "BSP-Stormfall"]` and `excludeForgeData = ["PlayerPersisted.bsp_core:LastMainDim", "PlayerPersisted.bsp_core:LastMainPos", "PlayerPersisted.bsp_core:LastMainServer", "PlayerPersisted.bsp_core:ZoneHeldTotems"]`; update the `defaultconfigs/` copies too. `/invsync reload` or restart; the log shows no "networkServers is empty" or "correct the spelling" warning.
+- [ ] Put a marked item in your inventory on SafeRoom, switch to Frostwarf: the item is there and `/invsync snapshots <you>` on Frostwarf shows the arrival used SafeRoom's newest version.
+- [ ] Set a base position on one server (BSP-Core's last main position), switch servers and back: the position on each server is that server's own.
+- [ ] Die in an Anti Totem zone with a totem, switch servers from the death screen if possible, respawn: the totem is handed back on the server where you died and never appears on the other.
+- [ ] A new player's first join: BSP-Core's first totem and guide book arrive within a second or two, not after 30 seconds (no "No inventory restore ... within storage.restoreWaitSeconds" line in BSP-Core's log).

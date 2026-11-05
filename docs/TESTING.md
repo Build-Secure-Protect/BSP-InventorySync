@@ -207,3 +207,14 @@ Covered headlessly (4 new GameTests, 78 in all, run twice): a list entry "BSP-Sa
 - [ ] Set a base position on one server (BSP-Core's last main position), switch servers and back: the position on each server is that server's own.
 - [ ] Die in an Anti Totem zone with a totem, switch servers from the death screen if possible, respawn: the totem is handed back on the server where you died and never appears on the other.
 - [ ] A new player's first join: BSP-Core's first totem and guide book arrive within a second or two, not after 30 seconds (no "No inventory restore ... within storage.restoreWaitSeconds" line in BSP-Core's log).
+
+
+## 2026-11-05: the XP bar and effects after a teleport into another dimension
+
+Covered headlessly (1 new GameTest, 79 in all, run twice): Forge's dimension-change event, which `teleportTo` into another level posts, sends the player's real XP (level, total, progress) once and one packet per active effect (type, amplifier, duration) to their client, and leaves the server's XP and effects untouched. The test was checked with each half switched off and fails there ("one XP packet sent: 0", "one packet per effect, for this player: 0"). The vanilla side (`teleportTo` rebuilds the client player but re-sends neither; a portal re-sends both; the client's respawn handler keeps neither) was read from Forge 47.4.10's compiled code, not seen in game.
+
+- [ ] Get some levels in the Nether, then return to the Overworld with a BSP-Teleport teleport (home, warp or spawn): the XP bar shows the same level at once.
+- [ ] The same with BSP-Core's totem recall, a Region Guard border link or trigger into another dimension, and `/execute in minecraft:the_nether run tp @s ~ ~ ~`.
+- [ ] Drink a potion of slow falling or night vision in the Nether, then teleport to the Overworld with BSP-Teleport: the icon stays, night vision stays bright, and slow falling still slows a fall.
+- [ ] A portal trip still shows the right level and effects.
+

@@ -159,6 +159,40 @@ public class SafetyTests {
     }
 
     @GameTest(template = EMPTY)
+    public static void a_teleport_into_another_dimension_sends_the_xp_and_effects_again(GameTestHelper h) {
+        ServerPlayer p = TestPlayers.mockServerPlayer(h);
+        p.setExperienceLevels(50);
+        p.experienceProgress = 0.25f;
+        p.totalExperience = 5_345;
+        p.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.SLOW_FALLING, 600, 0));
+        p.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.NIGHT_VISION, 1_200, 1));
+        io.netty.channel.embedded.EmbeddedChannel channel = (io.netty.channel.embedded.EmbeddedChannel) p.connection.connection.channel();
+        while (channel.readOutbound() != null) {
+            // drop what was sent before
+        }
+        // what Forge posts from teleportTo into another level (mod teleports, /tp), where vanilla never re-sends either
+        MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.entity.player.PlayerEvent.PlayerChangedDimensionEvent(p, net.minecraft.world.level.Level.NETHER, net.minecraft.world.level.Level.OVERWORLD));
+        List<net.minecraft.network.protocol.game.ClientboundSetExperiencePacket> xps = new ArrayList<>();
+        List<net.minecraft.network.protocol.game.ClientboundUpdateMobEffectPacket> effects = new ArrayList<>();
+        for (Object out; (out = channel.readOutbound()) != null; ) {
+            if (out instanceof net.minecraft.network.protocol.game.ClientboundSetExperiencePacket xp) {
+                xps.add(xp);
+            } else if (out instanceof net.minecraft.network.protocol.game.ClientboundUpdateMobEffectPacket effect) {
+                effects.add(effect);
+            }
+        }
+        h.assertTrue(xps.size() == 1, "one XP packet sent: " + xps.size());
+        net.minecraft.network.protocol.game.ClientboundSetExperiencePacket xp = xps.get(0);
+        h.assertTrue(xp.getExperienceLevel() == 50 && xp.getTotalExperience() == 5_345 && xp.getExperienceProgress() == 0.25f,
+                "the real XP: level " + xp.getExperienceLevel() + ", total " + xp.getTotalExperience() + ", progress " + xp.getExperienceProgress());
+        h.assertTrue(effects.size() == 2 && effects.stream().allMatch(e -> e.getEntityId() == p.getId()), "one packet per effect, for this player: " + effects.size());
+        h.assertTrue(effects.stream().anyMatch(e -> e.getEffect() == net.minecraft.world.effect.MobEffects.SLOW_FALLING && e.getEffectDurationTicks() == 600 && e.getEffectAmplifier() == 0), "slow falling as on the server");
+        h.assertTrue(effects.stream().anyMatch(e -> e.getEffect() == net.minecraft.world.effect.MobEffects.NIGHT_VISION && e.getEffectDurationTicks() == 1_200 && e.getEffectAmplifier() == 1), "night vision as on the server");
+        h.assertTrue(p.experienceLevel == 50 && p.totalExperience == 5_345 && p.getActiveEffects().size() == 2, "the server's XP and effects are untouched");
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
     public static void a_network_server_id_spelled_in_another_case_still_counts(GameTestHelper h) {
         MinecraftServer server = h.getLevel().getServer();
         MemoryStore store = new MemoryStore();

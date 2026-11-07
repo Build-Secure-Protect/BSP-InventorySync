@@ -30,6 +30,7 @@ public final class MemoryStore implements SyncStore {
     private final Map<ExtraKey, byte[]> extras = new ConcurrentHashMap<>();
     private final Map<Long, Give> gives = new ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicLong nextGive = new java.util.concurrent.atomic.AtomicLong(1);
+    private final GraveTable graves = new GraveTable();
     private final LongSupplier clock;
     private volatile boolean closed;
 
@@ -62,6 +63,15 @@ public final class MemoryStore implements SyncStore {
             r.snapshots.put(s.version(), s);
         }
         return done(s);
+    }
+
+    @Override
+    public CompletableFuture<Snapshot> saveWithGraves(UUID player, String serverId, SaveCause cause, byte[] data, List<Grave> newGraves) {
+        if (closed) {
+            return CompletableFuture.failedFuture(new IllegalStateException("store closed"));
+        }
+        newGraves.forEach(graves::add);
+        return save(player, serverId, cause, data);
     }
 
     @Override
@@ -222,6 +232,41 @@ public final class MemoryStore implements SyncStore {
     @Override
     public CompletableFuture<Boolean> takeGive(long id) {
         return done(gives.remove(id) != null);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> addGrave(Grave grave) {
+        return done(graves.add(grave));
+    }
+
+    @Override
+    public CompletableFuture<Optional<Grave>> grave(UUID id) {
+        return done(graves.get(id));
+    }
+
+    @Override
+    public CompletableFuture<List<Grave>> graves(UUID owner) {
+        return done(graves.of(owner));
+    }
+
+    @Override
+    public CompletableFuture<Boolean> updateGrave(Grave grave) {
+        return done(graves.update(grave));
+    }
+
+    @Override
+    public CompletableFuture<Boolean> deleteGrave(UUID id, long revision) {
+        return done(graves.delete(id, revision));
+    }
+
+    @Override
+    public CompletableFuture<List<Grave>> gravesTouchedBefore(long before, int limit) {
+        return done(graves.touchedBefore(before, limit));
+    }
+
+    /** For tests: how many graves the store holds. */
+    public int graveCount() {
+        return graves.size();
     }
 
     @Override

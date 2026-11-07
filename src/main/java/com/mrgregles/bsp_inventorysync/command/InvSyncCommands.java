@@ -44,9 +44,11 @@ public final class InvSyncCommands {
     }
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, net.minecraft.commands.CommandBuildContext context) {
-        dispatcher.register(Commands.literal("invsync")
+        com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("invsync");
+        GraveCommands.adminNodes().forEach(root::then);
+        dispatcher.register(root
                 .requires(src -> src.hasPermission(2))
-                .then(Commands.literal("status").executes(ctx -> withService(ctx, AdminActions::status)))
+                .then(Commands.literal("status").executes(InvSyncCommands::status))
                 .then(Commands.literal("edit").requires(src -> src.hasPermission(3)).then(Commands.argument("player", GameProfileArgument.gameProfile())
                         .executes(ctx -> edit(ctx, null))
                         .then(Commands.argument("search", StringArgumentType.greedyString()).executes(ctx -> edit(ctx, StringArgumentType.getString(ctx, "search"))))))
@@ -205,7 +207,18 @@ public final class InvSyncCommands {
     private static int reload(CommandContext<CommandSourceStack> ctx) {
         MinecraftServer server = ctx.getSource().getServer();
         String result = Sync.reload(server);
-        reply(ctx.getSource(), List.of(result), true);
+        reply(ctx.getSource(), List.of(result, com.mrgregles.bsp_inventorysync.grave.GraveService.restart(server)), true);
         return 1;
+    }
+
+    /** The sync's state (when it is on) and the graves'. */
+    private static int status(CommandContext<CommandSourceStack> ctx) {
+        com.mrgregles.bsp_inventorysync.grave.GraveService g = com.mrgregles.bsp_inventorysync.grave.GraveService.active();
+        reply(ctx.getSource(), List.of(g == null ? "graves are off on this server" : g.status()), true);
+        if (Sync.active() == null) {
+            reply(ctx.getSource(), List.of("inventory sync is off on this server: storage.mode is not \"mysql\", or it could not start (see the server log)"), false);
+            return 0;
+        }
+        return withService(ctx, AdminActions::status);
     }
 }

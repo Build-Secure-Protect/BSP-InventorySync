@@ -56,6 +56,7 @@ public final class WaitingMenu extends ChestMenu {
         this.service = service;
         this.view = view;
         this.rows = List.copyOf(rows);
+        com.mrgregles.bsp_inventorysync.PictureSlots.lock(this, SLOTS);
         draw();
     }
 

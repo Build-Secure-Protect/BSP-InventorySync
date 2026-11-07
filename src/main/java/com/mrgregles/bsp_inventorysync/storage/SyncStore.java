@@ -23,10 +23,17 @@ import java.util.concurrent.CompletableFuture;
  * and never removes the latest.</li>
  * <li>{@link #clearPresence} marks offline everyone that server held, and nobody else.</li>
  * </ul>
+ * Graves (D25) live in the same store, with the rules of {@link GraveStore}.
  */
-public interface SyncStore {
+public interface SyncStore extends GraveStore {
     /** Stores a new snapshot and returns it with its version and time filled in. */
     CompletableFuture<Snapshot> save(UUID player, String serverId, SaveCause cause, byte[] data);
+
+    /**
+     * As {@link #save}, together with new graves of that player (D25), in one write: either the snapshot and the graves
+     * both land, or neither does. A grave already there (sent before, answer lost) is left as it is.
+     */
+    CompletableFuture<Snapshot> saveWithGraves(UUID player, String serverId, SaveCause cause, byte[] data, java.util.List<Grave> graves);
 
     /** The newest snapshot of the player, if any. */
     CompletableFuture<Optional<Snapshot>> latest(UUID player);

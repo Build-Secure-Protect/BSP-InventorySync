@@ -21,9 +21,12 @@ public final class BSPInventorySync {
     public BSPInventorySync() {
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, SyncConfig.SPEC);
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, NetworkConfig.SPEC, NetworkConfig.FILE); // the connection: never sent to players
+        com.mrgregles.bsp_inventorysync.grave.GraveRegistry.register(net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext.get().getModEventBus());
+        String version = ModLoadingContext.get().getActiveContainer().getModInfo().getVersion().toString();
+        VersionCheck.register(version);
         Modules.registerVanilla();
         Modules.registerAdapters();
         BspCore.install();
-        LOGGER.info("BSP-InventorySync loaded: {} data modules registered ", Modules.all().size());
+        LOGGER.info("BSP-InventorySync {} loaded: {} data modules registered; players need this exact version", version, Modules.all().size());
     }
 }

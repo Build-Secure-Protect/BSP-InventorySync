@@ -38,6 +38,12 @@ public final class SyncConfig {
     public static final ForgeConfigSpec.IntValue ARRIVAL_TIMEOUT_SECONDS;
     public static final ForgeConfigSpec.IntValue GIVE_POLL_SECONDS;
     public static final ForgeConfigSpec.BooleanValue KICK_ON_TIMEOUT;
+    public static final ForgeConfigSpec.BooleanValue GRAVES_ENABLED;
+    public static final ForgeConfigSpec.IntValue GRAVE_SEARCH_RADIUS;
+    public static final ForgeConfigSpec.IntValue GRAVE_PRIVATE_MINUTES;
+    public static final ForgeConfigSpec.IntValue GRAVE_RECOVER_DAYS;
+    public static final ForgeConfigSpec.IntValue GRAVE_ARCHIVE_DAYS;
+    public static final ForgeConfigSpec.IntValue GRAVE_DELETE_DAYS;
 
     /** The comment on each key whose value now lives in {@link NetworkConfig}; the key stays so that Forge keeps an old value until it is moved. */
     static final String MOVED = "Moved to config/bsp_inventorysync-network.toml (a SERVER config is sent to every player). A value left here is moved there at the next start and cleared.";
@@ -94,6 +100,21 @@ public final class SyncConfig {
         b.comment("/invsync give: items for a player, handed over on whichever server they are on.").push("give");
         GIVE_POLL_SECONDS = b.comment("How often this server looks for items waiting for the players on it (one small query, only while players are online).")
                 .defineInRange("pollSeconds", 5, 1, 300);
+        b.pop();
+        b.comment("Graves: a death that is not PvP puts what would drop into a grave, kept until it is emptied (on synced servers in the",
+                "network database, elsewhere in this world's own data). Off while Simply Graves is installed.").push("graves");
+        GRAVES_ENABLED = b.comment("false: deaths drop their items as vanilla does, and graves cannot be opened here.")
+                .define("enabled", true);
+        GRAVE_SEARCH_RADIUS = b.comment("How far from the death spot (in blocks) a dry spot to stand on is looked for, when the spot itself will not do.")
+                .defineInRange("searchRadius", 8, 1, 16);
+        GRAVE_PRIVATE_MINUTES = b.comment("For how long after the death only the grave's owner may open it; anyone may after that.")
+                .defineInRange("privateMinutes", 60, 0, 10_080);
+        GRAVE_RECOVER_DAYS = b.comment("A grave nobody has opened for this many days can be recovered by its owner from anywhere with /grave (one that found no spot, at once).")
+                .defineInRange("recoverAfterDays", 7, 0, 3650);
+        GRAVE_ARCHIVE_DAYS = b.comment("A grave nobody has opened for this many days is put away: its block goes, its owner no longer sees it, admins still can.")
+                .defineInRange("archiveAfterDays", 30, 1, 3650);
+        GRAVE_DELETE_DAYS = b.comment("A put-away grave is deleted for good this many days later, with a log line listing every stack.")
+                .defineInRange("deleteArchivedAfterDays", 30, 1, 3650);
         b.pop();
         SPEC = b.build();
     }

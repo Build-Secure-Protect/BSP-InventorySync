@@ -98,7 +98,7 @@ def banner():
     s.text(100, 150, "BSP-InventorySync", 58, TEXT, "bold")
     s.text(100, 196, "Your inventory follows you across the Build Secure Protect network.", 24, MUTED)
     x = 100
-    for label, color in (("Server-side only", ACCENT), ("Totem-safe", GOLD), ("Instant switches with Redis", VIOLET), ("Rollback with /invsync", ACCENT)):
+    for label, color in (("Totem-safe", GOLD), ("Instant switches with Redis", VIOLET), ("Graves that keep everything", ACCENT), ("Rollback with /invsync", GOLD)):
         x += s.badge(x, 240, label, color) + 14
     s.text(100, 312, "Minecraft 1.20.1  ·  Forge 47.4  ·  requires BSP-Core  ·  MIT", 16, MUTED, family=MONO)
     s.save("banner")
@@ -275,8 +275,36 @@ def missing():
     s.save("missing-items")
 
 
+# ------------------------------------------------------------------ 8 graves
+
+def graves():
+    s = Svg(1200, 450)
+    s.text(40, 48, "Graves that keep everything", 30, TEXT, "bold")
+    s.text(40, 78, "Every death gets its own grave. Nothing is dropped, nothing is deleted, and it waits on every server of the network.", 16, MUTED)
+    # a headstone, as the block's model draws it (sixteenths of a block, scaled)
+    k = 9
+    gx, gy = 90, 330
+    s.rect(gx + 2 * k, gy - 2 * k, 12 * k, 2 * k, "#8E8E8E", None, r=2)
+    s.rect(gx + 3 * k, gy - 13 * k, 10 * k, 11 * k, "#9C9C9C", None, r=2)
+    s.rect(gx + 5 * k, gy - 15 * k, 6 * k, 2 * k, "#A8A8A8", None, r=2)
+    s.rect(gx - 4, gy - 15 * k - 62, 16 * k + 8, 46, "#00000088", None, r=3)
+    s.text(gx + 8 * k, gy - 15 * k - 42, "Steve", 15, TEXT, "normal", "middle")
+    s.text(gx + 8 * k, gy - 15 * k - 24, "Right-click to open", 13, GOLD, "normal", "middle")
+    s.text(gx + 8 * k, gy + 34, "nothing breaks it", 13, MUTED, "normal", "middle")
+    panels = [
+        (300, "Dying", GOLD, ["A headstone where you fell, with", "everything and your experience.", "Lava, water, a wall: the nearest", "dry spot. The void: kept safe.", "", "PvP: no grave, the killer loots.", "Your totem stays BSP-Core's."]),
+        (600, "Opening", ACCENT, ["Laid out like your inventory.", "Take all: back where it was,", "armour worn again.", "What does not fit stays.", "", "Only you for the first hour,", "then anyone."]),
+        (900, "Recovering", VIOLET, ["  /grave", "Every grave, every server.", "No spot, or 7 days unopened:", "[Recover] opens it anywhere.", "", "30 days unopened: put away;", "admins can still return it."]),
+    ]
+    for x, title, color, lines in panels:
+        s.panel(x, 110, 270, 310, title, color)
+        for i, line in enumerate(lines):
+            s.text(x + 20, 180 + i * 34, line, 15, TEXT if not line.startswith("  ") else color, family=MONO if line.startswith("  ") else SANS)
+    s.save("graves")
+
+
 if __name__ == "__main__":
-    for fn in (banner, switch, travels, status, rollback, totem, missing):
+    for fn in (banner, switch, travels, status, rollback, totem, missing, graves):
         fn()
     if "--keep-svg" not in sys.argv:
         for f in OUT.glob("*.svg"):

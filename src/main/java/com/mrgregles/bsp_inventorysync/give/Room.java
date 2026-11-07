@@ -11,8 +11,8 @@ import java.util.List;
  * Room in the main inventory (hotbar and the 27 slots above it). Gifts are put in here rather than through
  * {@code Inventory.add}, which deletes whatever does not fit when the player is in creative mode.
  */
-final class Room {
-    static final int MAIN = 36;
+public final class Room {
+    public static final int MAIN = 36;
 
     private Room() {}
 
@@ -69,7 +69,7 @@ final class Room {
     }
 
     /** Puts as much of the stack as fits into the real main inventory; the stack keeps the rest. Returns how many went in. */
-    static int insert(Inventory inv, ItemStack stack) {
+    public static int insert(Inventory inv, ItemStack stack) {
         int max = Math.min(stack.getMaxStackSize(), 64);
         int before = stack.getCount();
         for (int i = 0; i < MAIN && !stack.isEmpty(); i++) {

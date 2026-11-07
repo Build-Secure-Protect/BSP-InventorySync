@@ -2,9 +2,9 @@
 
 # BSP-InventorySync
 
-**Your inventory follows you across the Build Secure Protect network.** Move from one BSP server to another and everything you carry and everything about your character is already there: inventory, armour, ender chest, experience, health, effects, and the per-player data of the pack's mods. Built for the BSP network, where [BSP-Core](https://www.curseforge.com/minecraft/mc-mods/bsp-core)'s Shatter Totems must never be duplicated or lost.
+**Your inventory follows you across the Build Secure Protect network.** Move from one BSP server to another and everything you carry and everything about your character is already there: inventory, armour, ender chest, experience, health, effects, and the per-player data of the pack's mods. Built for the BSP network, where [BSP-Core](https://www.curseforge.com/minecraft/mc-mods/bsp-core)'s Shatter Totems must never be duplicated or lost. And when you die, everything you carried waits for you in a grave that nothing can break.
 
-Server-side only: players install nothing. Minecraft 1.20.1, Forge 47.4. Requires BSP-Core. MIT licence, source on [GitHub](https://github.com/Build-Secure-Protect/BSP-InventorySync).
+Needed on the servers and, in exactly the same version, in the players' modpack (for the grave block). Minecraft 1.20.1, Forge 47.4. Requires BSP-Core. MIT licence, source on [GitHub](https://github.com/Build-Secure-Protect/BSP-InventorySync).
 
 ---
 
@@ -36,9 +36,26 @@ If you arrive on a server that does not have one of your items' mods, the item b
 
 ---
 
+## Graves
+
+![Graves](https://raw.githubusercontent.com/Build-Secure-Protect/BSP-InventorySync/main/docs/curseforge/images/graves.png)
+
+When you die, a headstone appears where you fell, holding everything you would have dropped and your experience. It replaces Simply Graves, with what players missed there fixed.
+
+- **Every death gets its own grave.** Dying on the way back never touches the first one.
+- **Right-click it** to open it: a chest screen laid out like your inventory (main rows, hotbar, armour, offhand). Click a stack to take it, or Take all: everything goes back into the slot it came from (armour is worn again). What does not fit stays in the grave until you make room; nothing is dropped or deleted.
+- **Only you, for the first hour**, then anyone. The first to open it gets the experience.
+- **No grave for a PvP death**: the items drop as usual, for the killer. Your Shatter Totem is never in a grave; BSP-Core handles it, and the grave never takes its spot.
+- **Nothing breaks it**: not a pickaxe in creative mode, explosions, pistons, water, lava, fire, the wither or the dragon. Claims and regions never keep you out of your own grave.
+- **In lava, water, a wall or the void?** It goes to the nearest dry spot, or where you last stood on solid ground. If there is nowhere at all, it is kept safe and you recover it with `/grave`.
+- **`/grave`** lists your graves on every server of the network. A grave that found no spot, or that nobody opened for 7 days, has a [Recover] link: it opens right where you are, on any server. Backpack and dank contents come with their items.
+- A grave nobody opens for 30 days is put away (admins can still return it) and deleted 30 days after that.
+
+---
+
 ## For server admins: installing
 
-1. Put the jar in `mods/` on every backend, next to BSP-Core 1.1.0 or newer. Clients need nothing.
+1. Put the jar in `mods/` on every backend, next to BSP-Core 1.1.0 or newer, and the same jar in the players' modpack: a player with another version, or without it, is refused at login. Remove Simply Graves from both (this mod's graves stay off while it is installed).
 2. Start each server once. The config appears at `<world>/serverconfig/bsp_inventorysync-server.toml`.
 3. Set `storage.mode = "mysql"`. By default the database settings and this server's name are read from BSP-Core's (its connection is in `config/bsp_core-network.toml`), so a network already running BSP-Core on MySQL needs nothing more. Set `storage.useBspCoreDatabase = false` to give this mod its own host, user and password instead: those go in `config/bsp_inventorysync-network.toml`, which stays on the server (the server config is sent to every player, so it holds no passwords).
 4. Optional but recommended: set `redis.enabled = true`, with your Redis host and password in `config/bsp_inventorysync-network.toml`. Redis makes switches instant; without it a switch waits only for the source server's save to land in MySQL.
@@ -70,7 +87,7 @@ BSP-Core already handles a totem when its owner leaves: it is placed in the worl
 
 ## Admin commands
 
-Everything an operator needs is under `/invsync` (permission level 2; the editor level 3). Its two screens are vanilla chest screens, so players and operators install nothing.
+Everything an operator needs is under `/invsync` (permission level 2; the editor level 3). Its screens are vanilla chest screens.
 
 ![/invsync status and snapshots](https://raw.githubusercontent.com/Build-Secure-Protect/BSP-InventorySync/main/docs/curseforge/images/invsync-status.png)
 
@@ -85,6 +102,10 @@ Everything an operator needs is under `/invsync` (permission level 2; the editor
 | `/invsync dump <player>` | Shows how big each part of the player's data is and writes the whole thing as readable text under `world/bsp_inventorysync/dumps/`, for a bug report. |
 | `/invsync give <player> <item> [count]` | Gives an item on any server of the network, and from the console. What fits goes in at once; the rest waits for the player wherever they are, and they are asked in a small chest screen to make room, then click Deposit. Offline players get it at their next login. Shatter Totems are refused. |
 | `/invsync edit <player>` | Opens the player's inventory and ender chest in a chest screen (level 3), with a creative item list, Trash, Save and Confirm. Works for offline players on their newest snapshot. |
+| `/invsync graves <player>` | Every grave of the player with its id, newest first, put-away ones too. |
+| `/invsync grave open <player> <id>` | Opens that grave for you, whatever its age. |
+| `/invsync grave give <player> <id> <to>` | Makes the grave that player's: they recover it with `/grave`, contents and experience included. Once only. |
+| `/invsync grave remove <player> <id>` | Empties the grave for good; the log lists every stack it held. |
 | `/invsync reload` | Re-reads the config and reconnects to the database and Redis without disturbing the players online. |
 
 ### Snapshots and rollback
@@ -109,6 +130,8 @@ Every save is kept as a numbered snapshot with its cause. The last 16 per player
 **BSP-Core** (required). BSP-Core's Shatter Totems are the reason this mod exists rather than a generic sync: the totem rule above, the hand-back on arrival, and BSP-Core's deliveries and season coin check waiting for the restore. The database settings and server id are shared with BSP-Core's config by default, so the network is set up once.
 
 **BSP-Teleport** (optional). BSP-Teleport's cross-server teleports are server switches like any other and are handled by the handshake with nothing to configure: BSP-Teleport's landing happens first, the restore follows while the player is still frozen at the landing point. The api also offers `beginTransfer`, which a teleport mod can call just before the proxy switch so the save is already in flight when the player leaves.
+
+**Simply Graves** (replaced). Remove it from the servers and the pack; while it is installed this mod's graves stay off, so nothing is handled twice. Graves Simply Graves still holds are not carried over: collect them before removing it.
 
 **Curios, Sophisticated Backpacks, Dank Storage** (optional). Each has its own adapter that registers only when the mod is present. Any other mod's per-player data travels through the generic module without an adapter.
 

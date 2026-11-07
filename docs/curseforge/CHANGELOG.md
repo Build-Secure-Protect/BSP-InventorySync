@@ -1,3 +1,26 @@
+# BSP-InventorySync 0.5.0: graves
+
+Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. **Now needed on the client too**, in exactly the server's version: put the same jar in the modpack. Replaces Simply Graves: remove it from the servers and the pack (and collect its graves first).
+
+## Graves
+
+- A death that is not PvP leaves a headstone where it happened, holding everything that would have dropped and the experience. Every death gets its own grave.
+- Right-click opens a chest screen laid out like the inventory. Take a stack, or Take all: everything goes back to the slot it came from, armour worn again; what does not fit stays in the grave. Nothing is dropped or deleted, in creative mode either.
+- Only its owner for the first hour (`graves.privateMinutes`), then anyone; the first to open it gets the experience; the owner is told on whichever server they are when someone else opens it.
+- No grave for a PvP death: the drops fall for the killer. Shatter Totems never go into a grave, and a grave never takes the spot of a dropped totem.
+- Nothing breaks it: creative mode, explosions, pistons, fluids, fire, the wither, the dragon. Claims and regions never block it. It glows faintly; its stone suits the place (stone, deepslate, blackstone, end stone).
+- In lava, water or a wall, the nearest dry spot within 8 blocks; failing that, where the player last stood on solid ground; failing that, kept safe without a block and recovered with `/grave`.
+- `/grave` lists every grave on every server; [Recover] opens one that found no spot, or that nobody opened for 7 days, wherever the player is. Backpack and dank contents travel with their items.
+- Unopened for 30 days, a grave is put away (admins still see it); 30 days later it is deleted, with every stack in the log.
+- Admins: `/invsync graves <player>`, `/invsync grave open|give|remove <player> <id>`.
+- Kept in the network database (`bsp_is_graves`), written together with the player's snapshot after the death, or in the world's own data on a server without it, single player included. A crash, an outage or a slow database never duplicates or loses a grave; two servers can never take the same stack.
+
+## Changed
+
+- The client needs the mod, in the same version as the server (a client with it can still join servers without it).
+
+---
+
 # BSP-InventorySync 0.1.0
 
 First release. Minecraft 1.20.1, Forge 47.4. Server-side only: players need nothing installed. Requires BSP-Core 1.1.0 or newer.

@@ -105,9 +105,71 @@ public final class DankStorage {
 
         @Override
         public void save(ServerPlayer player, CompoundTag out) {
+            out.put(DANKS, danks(carried(player), player.level()));
+        }
+
+        /**
+         * The contents of every dank among these stacks, keyed by the frequency it has on this server, in the form
+         * {@link #load} reads: a grave carries them this way (D25). Empty without the mod.
+         */
+        public static ListTag danksIn(java.util.Collection<ItemStack> stacks, Level level) {
+            if (!present()) {
+                return new ListTag();
+            }
+            Map<Integer, ItemStack> byFrequency = new HashMap<>();
+            for (ItemStack s : stacks) {
+                if (isDank(s) && frequency(s) != INVALID) {
+                    byFrequency.putIfAbsent(frequency(s), s);
+                }
+            }
+            return danks(byFrequency, level);
+        }
+
+        /**
+         * Gives danks that come from another server's grave their contents here (D25): each one read by {@link #danksIn}
+         * gets a fresh frequency on this server (copies of one dank share it) and its contents written under it. The
+         * stacks are changed in place, before they go into an inventory. Returns how many danks got contents.
+         */
+        public static int restoreDanks(java.util.Collection<ItemStack> stacks, ListTag danks, Level level) {
+            if (!present() || danks.isEmpty()) {
+                return 0;
+            }
+            Map<Integer, CompoundTag> byFrequency = new HashMap<>();
+            for (Tag t : danks) {
+                CompoundTag entry = (CompoundTag) t;
+                byFrequency.put(entry.getInt(FREQUENCY), entry.getCompound(CONTENTS));
+            }
+            Map<Integer, Integer> given = new HashMap<>();
+            int n = 0;
+            for (ItemStack s : stacks) {
+                if (!isDank(s)) {
+                    continue;
+                }
+                int f = frequency(s);
+                CompoundTag contents = byFrequency.get(f);
+                if (contents == null) {
+                    continue;
+                }
+                Integer here = given.get(f);
+                if (here == null) {
+                    Reflect.call(ASSIGN_NEXT_ID, null, s);
+                    given.put(f, frequency(s));
+                } else {
+                    Reflect.call(SET_FREQUENCY, null, s, here);
+                }
+                Object inv = Reflect.call(GET_BAG_INVENTORY, null, s, level);
+                if (inv != null) {
+                    Reflect.call(READ, inv, contents.copy());
+                    n++;
+                }
+            }
+            return n;
+        }
+
+        private static ListTag danks(Map<Integer, ItemStack> byFrequency, Level level) {
             ListTag danks = new ListTag();
-            for (Map.Entry<Integer, ItemStack> e : carried(player).entrySet()) {
-                Object inv = Reflect.call(GET_BAG_INVENTORY, null, e.getValue(), player.level());
+            for (Map.Entry<Integer, ItemStack> e : byFrequency.entrySet()) {
+                Object inv = Reflect.call(GET_BAG_INVENTORY, null, e.getValue(), level);
                 if (inv == null) {
                     continue;
                 }
@@ -119,7 +181,7 @@ public final class DankStorage {
                     danks.add(entry);
                 }
             }
-            out.put(DANKS, danks);
+            return danks;
         }
 
         @Override

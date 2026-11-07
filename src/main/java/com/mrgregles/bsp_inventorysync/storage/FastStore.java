@@ -97,7 +97,17 @@ public final class FastStore implements SyncStore {
 
     @Override
     public CompletableFuture<Snapshot> save(UUID player, String serverId, SaveCause cause, byte[] data) {
-        return inner.save(player, serverId, cause, data).thenCompose(snapshot ->
+        return cached(player, inner.save(player, serverId, cause, data));
+    }
+
+    @Override
+    public CompletableFuture<Snapshot> saveWithGraves(UUID player, String serverId, SaveCause cause, byte[] data, List<Grave> graves) {
+        return cached(player, inner.saveWithGraves(player, serverId, cause, data, graves));
+    }
+
+    /** After the database has the snapshot, Redis caches it (or drops its older copy). */
+    private CompletableFuture<Snapshot> cached(UUID player, CompletableFuture<Snapshot> saved) {
+        return saved.thenCompose(snapshot ->
                 redis.set(snapshotKey(player), encode(snapshot), snapshotTtlMs)
                         .handle((v, error) -> {
                             if (error != null) {
@@ -268,6 +278,38 @@ public final class FastStore implements SyncStore {
     @Override
     public CompletableFuture<Boolean> takeGive(long id) {
         return inner.takeGive(id);
+    }
+
+    // ------------------------------------------------------------------ graves: the database only
+
+    @Override
+    public CompletableFuture<Boolean> addGrave(Grave grave) {
+        return inner.addGrave(grave);
+    }
+
+    @Override
+    public CompletableFuture<Optional<Grave>> grave(UUID id) {
+        return inner.grave(id);
+    }
+
+    @Override
+    public CompletableFuture<List<Grave>> graves(UUID owner) {
+        return inner.graves(owner);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> updateGrave(Grave grave) {
+        return inner.updateGrave(grave);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> deleteGrave(UUID id, long revision) {
+        return inner.deleteGrave(id, revision);
+    }
+
+    @Override
+    public CompletableFuture<List<Grave>> gravesTouchedBefore(long before, int limit) {
+        return inner.gravesTouchedBefore(before, limit);
     }
 
     @Override

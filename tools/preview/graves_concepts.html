@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grave Concepts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0B0F14; --panel: #10151C; --line: #2A2F3A;
+    --accent: #19D3B0; --violet: #B58CFF; --gold: #FFD23A; --bad: #FF6B5C;
+    --text: #E6EAF2; --muted: #9AA3B5;
+    --gui: #C6C6C6; --slot: #8B8B8B;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "IBM Plex Sans", system-ui, sans-serif; line-height: 1.5; }
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1, h2, h3 { font-family: "Silkscreen", monospace; font-weight: 700; letter-spacing: 0.5px; margin: 0; }
+  h1 { font-size: 28px; color: var(--accent); }
+  h2 { font-size: 19px; margin-bottom: 4px; }
+  h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; margin: 16px 0 6px; }
+  .part { font-family: "Silkscreen", monospace; font-size: 22px; color: var(--gold); margin: 40px 0 0; }
+  p { margin: 8px 0; }
+  .lede { color: var(--muted); max-width: 900px; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; color: var(--violet); }
+  .option { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; margin-top: 22px; }
+  .option.pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .tag { display: inline-block; font-family: "Silkscreen", monospace; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-left: 8px; vertical-align: middle; background: var(--accent); color: var(--bg); }
+  .screens { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
+  .screen-wrap { display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+  .caption { font-size: 13px; color: var(--muted); max-width: 420px; }
+  svg.scene { background: linear-gradient(#5B8FC9, #9CC0E4); border-radius: 6px; max-width: 100%; height: auto; }
+  /* a vanilla container screen */
+  .gui { background: var(--gui); border: 3px solid; border-color: #FFFFFF #555555 #555555 #FFFFFF; border-radius: 4px; padding: 7px 7px 8px; width: max-content; max-width: 100%; overflow-x: auto; }
+  .gui .title { font-family: "Silkscreen", monospace; font-size: 11px; color: #404040; margin: 0 0 4px 1px; }
+  .grid { display: grid; grid-template-columns: repeat(9, 36px); gap: 0; }
+  .slot { width: 36px; height: 36px; background: var(--slot); border: 2px solid; border-color: #373737 #FFFFFF #FFFFFF #373737; position: relative; display: flex; align-items: center; justify-content: center; }
+  .slot .ic { width: 24px; height: 24px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-family: "Silkscreen", monospace; font-size: 8px; color: #fff; text-shadow: 1px 1px 0 #0008; }
+  .slot .n { position: absolute; right: 1px; bottom: -2px; font-family: "Silkscreen", monospace; font-size: 10px; color: #fff; text-shadow: 1px 1px 0 #3F3F3F; }
+  .slot.btn { background: #6F7D8C; }
+  .own .title { color: #6b6b6b; }
+  .own .grid { opacity: 0.55; }
+  ul.pros { padding-left: 18px; margin: 6px 0 0; font-size: 14px; }
+  ul.pros li { margin: 3px 0; }
+  .good { color: var(--accent); }
+  .meh { color: var(--gold); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .decisions ol { padding-left: 22px; }
+  .decisions li { margin: 10px 0; }
+  .decisions .d { color: var(--accent); font-weight: 600; }
+  .chat { background: #000A; padding: 8px 10px; font-family: "Silkscreen", monospace; font-size: 11px; color: #fff; width: 560px; max-width: 100%; border-radius: 4px; }
+  .chat .l { margin: 3px 0; }
+  .chat .b { color: #6CC24A; } .chat .r { color: #FF6B5C; } .chat .g { color: #AAAAAA; } .chat .y { color: #FFD23A; } .chat .c { color: #55FFFF; }
+  .foot { color: var(--muted); font-size: 13px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Grave Concepts</h1>
+  <p class="lede">
+    BSP-InventorySync takes over from Simply Graves. When a player dies, what would drop goes into a grave instead; the grave is
+    kept in the network database, so every grave a player has, on every server, shows in <code>/grave</code>. Part 1 is how the
+    grave looks in the world; Part 2 is what happens when someone opens it. The scene in every picture: Steve was killed by Alex,
+    so BSP-Core has already placed Steve's Shatter Totem as a block next to the body (purple) before the grave is made. The grave
+    never holds a totem and never takes the totem's spot.
+  </p>
+
+  <div class="part">Part 1: The grave in the world</div>
+  <div id="world"></div>
+
+  <div class="part">Part 2: Opening it</div>
+  <p class="lede">The same for the grave in the world and for a grave recovered with <code>/grave</code> (one that could not be
+    placed). Steve's inventory is full of blocks he picked up after respawning; his grave holds 18 stacks.</p>
+  <div id="open"></div>
+  <div class="legend" id="legend"></div>
+
+  <div class="part">Shared: chat</div>
+  <section class="option">
+    <h2>At death, and <code>/grave</code></h2>
+    <div class="screens">
+      <div class="screen-wrap"><div class="chat">
+        <div class="l g">Steve was slain by Alex</div>
+        <div class="l">Your grave is at <span class="b">120 64 -30</span> in <span class="b">the Overworld</span> on <span class="b">BSP-Spawn</span>.</div>
+        <div class="l g">Alex may open it now; everyone else in 1 hour.</div>
+      </div><div class="caption">At death. A grave that could not be placed (the void, no dry spot nearby) says so and shows a [Recover] link instead.</div></div>
+      <div class="screen-wrap"><div class="chat">
+        <div class="l y">Your graves (3)</div>
+        <div class="l">1. <span class="b">BSP-Spawn</span>, Overworld 120 64 -30, 12 min ago, 18 stacks</div>
+        <div class="l">2. <span class="b">BSP-Moongrove</span>, the Nether 8 31 -402, 2 h ago, 9 stacks</div>
+        <div class="l">3. <span class="b">BSP-Frostwarf</span>, could not be placed, yesterday, 30 stacks <span class="c">[Recover]</span></div>
+      </div><div class="caption">Every grave on every server, newest first. Only a grave that could not be placed has [Recover]; the others are opened where they stand.</div></div>
+    </div>
+  </section>
+
+  <section class="option decisions">
+    <h2>Decisions on this page</h2>
+    <ol>
+      <li><b>Look in the world.</b> A, B or C. <span class="d">Default: B, a gravestone built from display entities</span>: nothing to install on the client, takes no block, so nothing can break, push, burn or replace it and it never blocks the totem.</li>
+      <li><b>The floating text.</b> <span class="d">Default: three short lines: "Steve's grave", who may open it now ("Steve and Alex" or "Steve"), and "Public in 58 min" until it is public</span>. Text from the server is the same for everyone looking, so it names who may open it instead of saying "yours" or "not yours". Updated once a minute.</li>
+      <li><b>Opening.</b> A, B or C. <span class="d">Default: C, right-click takes everything into the slots it came from, and if anything does not fit the grave screen opens with the rest</span>; sneak and right-click opens the screen without taking anything.</li>
+      <li><b>The grave screen.</b> <span class="d">Default: a six-row chest titled with the owner's name; five rows of items (arrows for more pages if a grave ever holds more than 45 stacks), a bottom row with Close (red, left), an info paper (middle) and Take all (lime, right)</span>. Stacks can be taken one at a time; nothing can be put in.</li>
+      <li><b>What is left.</b> <span class="d">Default: whatever does not fit stays in the grave, in the world or in <code>/grave</code>, until it is taken</span>. Nothing is ever dropped on the ground and nothing is deleted.</li>
+      <li><b>The grave goes</b> <span class="d">when its last stack is taken</span> (the gravestone and its text disappear, with the usual block-break puff).</li>
+    </ol>
+  </section>
+
+  <p class="foot">
+    Pictures are rough isometric sketches; in game the blocks have their real textures. Item icons are coloured tiles with short
+    labels. The questions that are not about looks (PvP, how long a grave stays private, old Simply Graves graves, commands) are in
+    the chat.
+  </p>
+</main>
+
+<script>
+/* ---------- isometric sketch ---------- */
+const S = 60;                 // half tile width in px
+const OX = 220, OY = -10;     // origin
+function P(x, y, z) { return [OX + (x - y) * S, OY + (x + y) * S / 2 - z * S]; }
+function poly(pts, fill, stroke) {
+  return `<polygon points="${pts.map(p => P(...p).map(v => v.toFixed(1)).join(",")).join(" ")}" fill="${fill}" stroke="${stroke || "#0003"}" stroke-width="1"/>`;
+}
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.max(0, Math.min(255, Math.round(v * f))));
+  return "#" + c.map(v => v.toString(16).padStart(2, "0")).join("");
+}
+// a cuboid from (x,y,z) of size w (x), d (y), h (z); colour = top colour, sides darker
+function box(x, y, z, w, d, h, col, side) {
+  side = side || col;
+  return { key: x + y + w + d + z * 0.01, svg:
+    poly([[x, y + d, z + h], [x + w, y + d, z + h], [x + w, y + d, z], [x, y + d, z]], shade(side, 0.78)) +
+    poly([[x + w, y, z + h], [x + w, y + d, z + h], [x + w, y + d, z], [x + w, y, z]], shade(side, 0.62)) +
+    poly([[x, y, z + h], [x + w, y, z + h], [x + w, y + d, z + h], [x, y + d, z + h]], col) };
+}
+function ground() {
+  const out = [];
+  for (let x = 1; x < 4; x++) for (let y = 1; y < 4; y++) out.push(box(x, y, -1, 1, 1, 1, "#6AA84F", "#7A5A3A"));
+  return out;
+}
+function label(x, y, z, lines, opts) {
+  const [sx, sy] = P(x, y, z);
+  const w = Math.max(...lines.map(l => l[0].length)) * 6.6 + 14, h = lines.length * 14 + 8;
+  let s = `<rect x="${sx - w / 2}" y="${sy - h}" width="${w}" height="${h}" fill="#00000066"/>`;
+  lines.forEach((l, i) => { s += `<text x="${sx}" y="${sy - h + 16 + i * 14}" fill="${l[1] || "#fff"}" font-family="Silkscreen, monospace" font-size="10" text-anchor="middle">${l[0]}</text>`; });
+  if (opts && opts.note) s += `<text x="${sx}" y="${sy - h - 6}" fill="#1b2a3a" font-family="IBM Plex Sans, sans-serif" font-size="11" text-anchor="middle">${opts.note}</text>`;
+  return s;
+}
+function totem() {   // BSP-Core's Shatter Totem block on tile (3,1)
+  return [box(3.3, 1.3, 0, 0.4, 0.4, 0.15, "#3C2A55"), box(3.38, 1.38, 0.15, 0.24, 0.24, 0.7, "#9B6BFF", "#6B3FD0"), box(3.32, 1.32, 0.85, 0.36, 0.36, 0.12, "#FFD23A", "#B8901A")];
+}
+function scene(parts, text, extra) {
+  const all = ground().sort((a, b) => a.key - b.key).concat(parts.concat(totem()).sort((a, b) => a.key - b.key));
+  return `<svg class="scene" viewBox="0 0 440 300" width="440" height="300" xmlns="http://www.w3.org/2000/svg">${all.map(p => p.svg).join("")}${text}${extra || ""}
+    ${(() => { const [tx, ty] = P(4, 2, -1); return `<text x="${tx + 6}" y="${ty + 10}" fill="#2b1a4a" font-family="IBM Plex Sans, sans-serif" font-size="11"><tspan x="${tx + 6}">Shatter Totem</tspan><tspan x="${tx + 6}" dy="13">(BSP-Core)</tspan></text>`; })()}
+  </svg>`;
+}
+const TEXT = [["Steve's grave"], ["Steve and Alex may open it", "#FFD23A"], ["Public in 58 min", "#AAAAAA"]];
+
+// A: the player's own head
+const headA = [box(2.25, 2.25, 0, 0.5, 0.5, 0.5, "#4A2F1A", "#C69C6D")];
+const eyes = (() => { const a = P(2.36, 2.75, 0.3), b = P(2.62, 2.75, 0.3); return `<rect x="${a[0] - 3}" y="${a[1] - 3}" width="5" height="4" fill="#3B3BAA"/><rect x="${b[0] - 3}" y="${b[1] - 3}" width="5" height="4" fill="#3B3BAA"/>`; })();
+// B: a headstone from display entities: slab base, upright, cap
+const stoneB = [box(2.1, 2.15, 0, 0.8, 0.7, 0.14, "#9A9C9E", "#8A8D8F"), box(2.38, 2.25, 0.14, 0.24, 0.5, 0.7, "#8C8C8C", "#7A7A7A"), box(2.34, 2.21, 0.84, 0.32, 0.58, 0.09, "#A3A3A3", "#8C8C8C")];
+// C: a custom block shaped like Simply Graves' stone graves (a low tomb), its own texture
+const tombC = [box(2.31, 2.06, 0, 0.38, 0.88, 0.44, "#B9B4A8", "#9C978C"), box(2.35, 2.1, 0.44, 0.3, 0.8, 0.02, "#CFC9BB", "#9C978C")];
+const crossC = (() => { const a = P(2.5, 2.5, 0.47); return `<text x="${a[0]}" y="${a[1] + 3}" fill="#6d675c" font-family="Silkscreen, monospace" font-size="12" text-anchor="middle">+</text>`; })();
+
+const WORLD = [
+  { title: "A: The player's own head", cls: "",
+    pic: scene(headA, label(2.5, 2.5, 1.1, TEXT), eyes),
+    cap: "Steve's head (a vanilla player head with his skin) on the ground where he died, a floating text above it.",
+    pros: [["good", "Instantly recognisable: you see whose grave it is from afar. Nothing to install on the client."],
+           ["meh", "It is a block: it needs a free spot (not the totem's), and the mod has to guard it against pistons, explosions, fluids and other mods that move blocks."],
+           ["meh", "A head is small and easy to miss in tall grass or at night."]] },
+  { title: "B: A gravestone from display entities", cls: "pick", tag: true,
+    pic: scene(stoneB, label(2.5, 2.5, 1.35, TEXT)),
+    cap: "A small headstone drawn by the server with vanilla display entities (andesite slab, stone upright, cap), a floating text, and an invisible box that catches the right-click.",
+    pros: [["good", "Nothing to install on the client: the mod stays server-only."],
+           ["good", "Takes no block: nothing can break, push, burn or replace it, it never blocks the totem, and it can stand in water, snow or tall grass."],
+           ["meh", "Players walk through it (no collision), and it only shows within the entity render distance."]] },
+  { title: "C: A grave block of its own", cls: "",
+    pic: scene(tombC, label(2.5, 2.5, 1.0, TEXT), crossC),
+    cap: "A real block with its own model and texture, like Simply Graves' stone graves, made by a generator script.",
+    pros: [["good", "Solid and familiar to players who knew Simply Graves; can have several stone kinds."],
+           ["meh", "Needs the mod on every client: it stops being server-only (it is in the pack, but any client without it is refused)."],
+           ["meh", "A block again: needs a free spot and the same guards as A."]] }
+];
+
+/* ---------- screens ---------- */
+const IT = {
+  ds: ["#4FB8C9", "SWD", "Diamond sword"], dp: ["#4FB8C9", "PCK", "Diamond pickaxe"], dia: ["#3FD0D4", "DIA", "Diamond"],
+  ga: ["#E8C33A", "GAP", "Golden apple"], br: ["#B5803A", "BRD", "Bread"], tch: ["#E8B341", "TCH", "Torch"],
+  bp: ["#8A5A2B", "BAK", "Backpack (contents travel with it)"], coin: ["#E0B040", "SC", "Shatter Coins"], iron: ["#D8D8D8", "IRN", "Iron ingot"],
+  helm: ["#4FB8C9", "HLM", "Diamond helmet"], chest: ["#4FB8C9", "CHS", "Diamond chestplate"], legs: ["#4FB8C9", "LEG", "Diamond leggings"], boots: ["#4FB8C9", "BTS", "Diamond boots"],
+  sh: ["#8C6A3A", "SHD", "Shield"], ring: ["#C9A0FF", "RNG", "Curios ring"],
+  st: ["#7D7D7D", "STN", "Stone"], dirt: ["#7A5A3A", "DRT", "Dirt"], cob: ["#6A6A6A", "COB", "Cobblestone"], oak: ["#A0773D", "OAK", "Oak planks"],
+  take: ["#6CC24A", "ALL", "Take all (lime concrete)"], close: ["#C2453A", "X", "Close (red concrete)"],
+  info: ["#E9E4D2", "?", "Info (paper): Steve's grave, BSP-Spawn, 12 min ago. 18 stacks. Click a stack to take it, or Take all."],
+  fill: ["#1E1E1E", "", "Filler (black glass pane)"]
+};
+function slot(s) {
+  if (!s) return '<div class="slot"></div>';
+  const [k, n, cls] = s, it = IT[k];
+  return `<div class="slot ${cls || ""}" title="${it[2]}"><div class="ic" style="background:${it[0]}">${it[1]}</div>${n ? `<span class="n">${n}</span>` : ""}</div>`;
+}
+function gui(title, rows, extra) {
+  return `<div class="gui ${extra || ""}"><div class="title">${title}</div><div class="grid">${rows.flat().map(slot).join("")}</div></div>`;
+}
+const E = null, B = k => [k, 0, "btn"], F = () => ["fill", 0, "btn"];
+const FULL = () => gui("Your inventory", [
+  [["st", 64], ["oak", 64], ["cob", 64], ["dirt", 64], ["st", 64], ["dirt", 64], ["cob", 64], ["oak", 64], ["st", 64]],
+  [["dirt", 64], ["st", 64], ["cob", 64], ["dirt", 64], ["oak", 64], ["st", 64], ["cob", 64], ["dirt", 64], ["st", 64]],
+  [["cob", 64], ["dirt", 64], ["st", 64], ["oak", 64], ["cob", 64], ["dirt", 64], ["st", 64], ["cob", 64], ["st", 64]],
+  [["st", 64], ["dirt", 64], ["cob", 64], ["oak", 64], ["st", 64], ["dirt", 64], ["cob", 64], ["oak", 64], ["st", 64]]], "own");
+const GRAVE_ROWS = [
+  [["iron", 32], ["dia", 12], ["coin", 40], ["br", 20], E, E, E, E, ["bp"]],
+  [["tch", 64], ["iron", 64], E, E, E, E, E, E, E],
+  [E, E, E, E, E, E, E, E, E],
+  [["ds"], ["dp"], ["ga", 8], ["br", 16], ["tch", 30], E, E, E, E],
+  [["helm"], ["chest"], ["legs"], ["boots"], ["sh"], ["ring"], E, E, E],
+  [B("close"), F(), F(), F(), B("info"), F(), F(), F(), B("take")]
+];
+const LEFT_ROWS = [
+  [["iron", 32], ["dia", 12], ["coin", 40], ["br", 20], E, E, E, E, ["bp"]],
+  [["tch", 64], ["iron", 64], E, E, E, E, E, E, E],
+  [E, E, E, E, E, E, E, E, E],
+  [E, E, ["ga", 8], ["br", 16], ["tch", 30], E, E, E, E],
+  [E, E, E, E, E, ["ring"], E, E, E],
+  [B("close"), F(), F(), F(), B("info"), F(), F(), F(), B("take")]
+];
+const GRAVE = (t, rows) => gui(t || "Steve's grave", rows || GRAVE_ROWS);
+
+const OPEN = [
+  { title: "A: Right-click takes everything at once", cls: "",
+    screens: [[`<div class="chat"><div class="l">You took 7 stacks from your grave.</div><div class="l r">11 stacks stay in it: make room and right-click it again.</div></div>`,
+      "No screen. Items go back to the slots they came from (armour worn again, hotbar as it was), then any free slot; what does not fit stays in the grave."]],
+    pros: [["good", "Fastest, and closest to Simply Graves."],
+           ["meh", "With a full inventory the player cannot see what is still in the grave or choose what to take."],
+           ["meh", "A recovered grave (<code>/grave</code>) has nothing to right-click again: it needs a second command."]] },
+  { title: "B: Right-click opens the grave screen", cls: "",
+    screens: [[GRAVE() + FULL(), "A chest screen laid out like the inventory it came from: main rows, hotbar row, then armour, offhand and Curios. Click a stack to take it, or Take all."]],
+    pros: [["good", "Shows everything; a full inventory is never a problem: take what matters, the rest waits."],
+           ["good", "A killer can pick what they want."],
+           ["meh", "One more click for the usual case of just getting your stuff back."]] },
+  { title: "C: Both: take all, the screen only when something is left", cls: "pick", tag: true,
+    screens: [[`<div class="chat"><div class="l">You took 7 stacks from your grave.</div><div class="l y">11 stacks did not fit:</div></div>` + GRAVE("Steve's grave (11 left)", LEFT_ROWS) + FULL(),
+      "Right-click takes everything into the slots it came from. Only if something did not fit, the grave screen (B) opens with the rest. Sneak and right-click opens the screen without taking anything."]],
+    pros: [["good", "One click in the usual case, never a loss in the full case."],
+           ["good", "The same screen serves <code>/grave</code> [Recover], so a recovered grave behaves exactly like one in the world."],
+           ["meh", "Two ways to open it (right-click, sneak and right-click) to learn."]] }
+];
+
+document.getElementById("world").innerHTML = WORLD.map(o => `
+  <section class="option ${o.cls}">
+    <h2>${o.title}${o.tag ? '<span class="tag">Default</span>' : ""}</h2>
+    <div class="screens"><div class="screen-wrap">${o.pic}<div class="caption">${o.cap}</div></div></div>
+    <ul class="pros">${o.pros.map(([c, t]) => `<li class="${c}">${t}</li>`).join("")}</ul>
+  </section>`).join("");
+document.getElementById("open").innerHTML = OPEN.map(o => `
+  <section class="option ${o.cls}">
+    <h2>${o.title}${o.tag ? '<span class="tag">Default</span>' : ""}</h2>
+    <div class="screens">${o.screens.map(([html, cap]) => `<div class="screen-wrap">${html}<div class="caption">${cap}</div></div>`).join("")}</div>
+    <ul class="pros">${o.pros.map(([c, t]) => `<li class="${c}">${t}</li>`).join("")}</ul>
+  </section>`).join("");
+document.getElementById("legend").innerHTML = ["take", "close", "info", "fill"].map(k => `<span><i style="background:${IT[k][0]}"></i>${IT[k][2]}</span>`).join("");
+</script>
+</body>
+</html>

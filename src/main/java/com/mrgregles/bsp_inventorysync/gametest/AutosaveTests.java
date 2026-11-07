@@ -127,6 +127,7 @@ public class AutosaveTests {
         }
 
         @Override public CompletableFuture<Snapshot> save(UUID player, String serverId, SaveCause cause, byte[] data) { return never(); }
+        @Override public CompletableFuture<Snapshot> saveWithGraves(UUID player, String serverId, SaveCause cause, byte[] data, List<com.mrgregles.bsp_inventorysync.storage.Grave> graves) { return never(); }
         @Override public CompletableFuture<Optional<Snapshot>> latest(UUID player) { return never(); }
         @Override public CompletableFuture<Optional<Snapshot>> snapshot(UUID player, long version) { return never(); }
         @Override public CompletableFuture<List<Snapshot>> history(UUID player) { return never(); }
@@ -142,6 +143,12 @@ public class AutosaveTests {
         @Override public CompletableFuture<com.mrgregles.bsp_inventorysync.storage.Give> addGive(UUID player, byte[] item, String by) { return never(); }
         @Override public CompletableFuture<List<com.mrgregles.bsp_inventorysync.storage.Give>> gives(java.util.Collection<UUID> players) { return never(); }
         @Override public CompletableFuture<Boolean> takeGive(long id) { return never(); }
+        @Override public CompletableFuture<Boolean> addGrave(com.mrgregles.bsp_inventorysync.storage.Grave grave) { return never(); }
+        @Override public CompletableFuture<Optional<com.mrgregles.bsp_inventorysync.storage.Grave>> grave(UUID id) { return never(); }
+        @Override public CompletableFuture<List<com.mrgregles.bsp_inventorysync.storage.Grave>> graves(UUID owner) { return never(); }
+        @Override public CompletableFuture<Boolean> updateGrave(com.mrgregles.bsp_inventorysync.storage.Grave grave) { return never(); }
+        @Override public CompletableFuture<Boolean> deleteGrave(UUID id, long revision) { return never(); }
+        @Override public CompletableFuture<List<com.mrgregles.bsp_inventorysync.storage.Grave>> gravesTouchedBefore(long before, int limit) { return never(); }
         @Override public CompletableFuture<Boolean> ping() { return never(); }
         @Override public void close() {}
     }

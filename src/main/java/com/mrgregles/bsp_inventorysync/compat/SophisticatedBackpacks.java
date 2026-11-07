@@ -124,8 +124,38 @@ public final class SophisticatedBackpacks {
 
         @Override
         public void save(ServerPlayer player, CompoundTag out) {
+            out.put(PACKS, packs(carried(player)));
+        }
+
+        /**
+         * The contents of every backpack in these stacks (searched through each whole item tag, backpacks inside
+         * backpacks included), in the form {@link #load} reads: a grave carries them this way (D25). Empty without
+         * the mod.
+         */
+        public static ListTag packsIn(java.util.Collection<ItemStack> stacks) {
+            if (!present()) {
+                return new ListTag();
+            }
+            Set<UUID> uuids = new LinkedHashSet<>();
+            for (ItemStack s : stacks) {
+                scan(s, uuids);
+            }
+            return packs(uuids);
+        }
+
+        /** Writes contents read by {@link #packsIn} into this server's backpack storage; how many. */
+        public static int restorePacks(ListTag packs) {
+            if (!present()) {
+                return 0;
+            }
+            CompoundTag in = new CompoundTag();
+            in.put(PACKS, packs);
+            return restore(in);
+        }
+
+        private static ListTag packs(Set<UUID> start) {
             ListTag packs = new ListTag();
-            Set<UUID> todo = new LinkedHashSet<>(carried(player));
+            Set<UUID> todo = new LinkedHashSet<>(start);
             Set<UUID> done = new LinkedHashSet<>();
             while (!todo.isEmpty()) {
                 UUID uuid = todo.iterator().next();
@@ -146,11 +176,18 @@ public final class SophisticatedBackpacks {
                 nested.removeAll(done);
                 todo.addAll(nested);
             }
-            out.put(PACKS, packs);
+            return packs;
         }
 
         @Override
         public void load(ServerPlayer player, CompoundTag in) {
+            int n = restore(in);
+            if (n > 0) {
+                BSPInventorySync.LOGGER.debug("BSP-InventorySync: {} backpack(s) restored for {}", n, player.getGameProfile().getName());
+            }
+        }
+
+        private static int restore(CompoundTag in) {
             int n = 0;
             for (Tag t : in.getList(PACKS, Tag.TAG_COMPOUND)) {
                 CompoundTag entry = (CompoundTag) t;
@@ -160,9 +197,7 @@ public final class SophisticatedBackpacks {
                 setContents(entry.getUUID(UUID_KEY), entry.getCompound(CONTENTS).copy());
                 n++;
             }
-            if (n > 0) {
-                BSPInventorySync.LOGGER.debug("BSP-InventorySync: {} backpack(s) restored for {}", n, player.getGameProfile().getName());
-            }
+            return n;
         }
     }
 }

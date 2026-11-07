@@ -1,0 +1,108 @@
+{
+  "parent": "minecraft:block/block",
+  "ambientocclusion": false,
+  "textures": {
+    "particle": "minecraft:block/stone",
+    "stone": "minecraft:block/stone",
+    "base": "minecraft:block/smooth_stone"
+  },
+  "elements": [
+    {
+      "from": [
+        2,
+        0,
+        4
+      ],
+      "to": [
+        14,
+        2,
+        12
+      ],
+      "faces": {
+        "north": {
+          "texture": "#base"
+        },
+        "east": {
+          "texture": "#base"
+        },
+        "south": {
+          "texture": "#base"
+        },
+        "west": {
+          "texture": "#base"
+        },
+        "up": {
+          "texture": "#base"
+        },
+        "down": {
+          "texture": "#base",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "from": [
+        3,
+        2,
+        6.5
+      ],
+      "to": [
+        13,
+        13,
+        9.5
+      ],
+      "faces": {
+        "north": {
+          "texture": "#stone"
+        },
+        "east": {
+          "texture": "#stone"
+        },
+        "south": {
+          "texture": "#stone"
+        },
+        "west": {
+          "texture": "#stone"
+        },
+        "up": {
+          "texture": "#stone"
+        },
+        "down": {
+          "texture": "#stone"
+        }
+      }
+    },
+    {
+      "from": [
+        5,
+        13,
+        6.5
+      ],
+      "to": [
+        11,
+        15,
+        9.5
+      ],
+      "faces": {
+        "north": {
+          "texture": "#stone"
+        },
+        "east": {
+          "texture": "#stone"
+        },
+        "south": {
+          "texture": "#stone"
+        },
+        "west": {
+          "texture": "#stone"
+        },
+        "up": {
+          "texture": "#stone"
+        },
+        "down": {
+          "texture": "#stone"
+        }
+      }
+    }
+  ]
+}

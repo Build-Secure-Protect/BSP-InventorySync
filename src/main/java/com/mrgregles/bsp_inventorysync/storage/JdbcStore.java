@@ -29,6 +29,8 @@ import java.util.concurrent.TimeUnit;
  * reused) and where they are (online, server, since). The presence row is the handshake's checkout.</li>
  * <li>{@code snapshots}: one row per snapshot: version, server, time, cause, pin, the GZIP blob.</li>
  * <li>{@code extra}: blobs that live outside the player's NBT, by kind and key (backpack contents).</li>
+ * <li>{@code gives}: stacks waiting for a player ({@code /invsync give}, D23).</li>
+ * <li>{@code graves}: one row per grave (D25), its contents a GZIP blob, a revision for safe updates.</li>
  * </ul>
  */
 public final class JdbcStore implements SyncStore {
@@ -45,7 +47,7 @@ public final class JdbcStore implements SyncStore {
 
     private final Settings settings;
     private final String url;
-    private final String players, snapshots, extra, gives;
+    private final String players, snapshots, extra, gives, graves;
     private final ExecutorService worker;
     private static final long FIRST_BACKOFF_MS = 1_000, MAX_BACKOFF_MS = 15_000;
 
@@ -63,6 +65,7 @@ public final class JdbcStore implements SyncStore {
         this.snapshots = settings.prefix() + "snapshots";
         this.extra = settings.prefix() + "extra";
         this.gives = settings.prefix() + "gives";
+        this.graves = settings.prefix() + "graves";
         this.worker = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "bsp-inventorysync-mysql");
             t.setDaemon(true);
@@ -95,6 +98,12 @@ public final class JdbcStore implements SyncStore {
                 st.executeUpdate("CREATE TABLE IF NOT EXISTS " + gives + " ("
                         + "id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, player CHAR(36) NOT NULL, item MEDIUMBLOB NOT NULL, "
                         + "given_by VARCHAR(64) NOT NULL, created_at BIGINT NOT NULL, INDEX (player))");
+                st.executeUpdate("CREATE TABLE IF NOT EXISTS " + graves + " ("
+                        + "id CHAR(36) NOT NULL PRIMARY KEY, owner CHAR(36) NOT NULL, owner_name VARCHAR(64) NOT NULL, "
+                        + "server_id VARCHAR(64) NOT NULL, dimension VARCHAR(255) NOT NULL, x INT NOT NULL, y INT NOT NULL, z INT NOT NULL, "
+                        + "placed TINYINT NOT NULL, died_at BIGINT NOT NULL, touched_at BIGINT NOT NULL, archived_at BIGINT NOT NULL DEFAULT 0, "
+                        + "xp INT NOT NULL, stacks INT NOT NULL, revision BIGINT NOT NULL, data MEDIUMBLOB NOT NULL, "
+                        + "INDEX (owner), INDEX (touched_at))");
                 try (ResultSet rs = st.executeQuery("SELECT @@max_allowed_packet")) {
                     if (rs.next() && rs.getLong(1) < 16L * 1024 * 1024) {
                         BSPInventorySync.LOGGER.warn("BSP-InventorySync: the database's max_allowed_packet is {} KB; a player with a very full inventory can exceed it and fail to save. 16 MB or more is safe.", rs.getLong(1) / 1024);
@@ -177,6 +186,11 @@ public final class JdbcStore implements SyncStore {
 
     @Override
     public CompletableFuture<Snapshot> save(UUID player, String serverId, SaveCause cause, byte[] data) {
+        return saveWithGraves(player, serverId, cause, data, List.of());
+    }
+
+    @Override
+    public CompletableFuture<Snapshot> saveWithGraves(UUID player, String serverId, SaveCause cause, byte[] data, List<Grave> newGraves) {
         return run(() -> {
             Connection c = conn();
             c.setAutoCommit(false);
@@ -207,6 +221,9 @@ public final class JdbcStore implements SyncStore {
                     ps.setString(5, cause.id());
                     ps.setBytes(6, data);
                     ps.executeUpdate();
+                }
+                for (Grave g : newGraves) {
+                    insertGrave(c, g); // in the same transaction: the graves land with this snapshot or not at all
                 }
                 c.commit();
                 return new Snapshot(player, version, serverId, now, cause, false, data);
@@ -486,6 +503,125 @@ public final class JdbcStore implements SyncStore {
             try (PreparedStatement ps = conn().prepareStatement("DELETE FROM " + gives + " WHERE id = ?")) {
                 ps.setLong(1, id);
                 return ps.executeUpdate() > 0;
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------ graves
+
+    private static final String GRAVE_COLUMNS = "id, owner, owner_name, server_id, dimension, x, y, z, placed, died_at, touched_at, archived_at, xp, stacks, revision, data";
+
+    private static Grave graveRow(ResultSet rs) throws SQLException {
+        return new Grave(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("owner")), rs.getString("owner_name"),
+                rs.getString("server_id"), rs.getString("dimension"), rs.getInt("x"), rs.getInt("y"), rs.getInt("z"), rs.getInt("placed") != 0,
+                rs.getLong("died_at"), rs.getLong("touched_at"), rs.getLong("archived_at"), rs.getInt("xp"), rs.getInt("stacks"),
+                rs.getLong("revision"), rs.getBytes("data"));
+    }
+
+    private static List<Grave> graveRows(PreparedStatement ps) throws SQLException {
+        List<Grave> out = new ArrayList<>();
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                out.add(graveRow(rs));
+            }
+        }
+        return out;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> addGrave(Grave g) {
+        return run(() -> insertGrave(conn(), g));
+    }
+
+    /**
+     * Inserts the grave; false when its id is already there (nothing changed). {@code ON DUPLICATE KEY UPDATE id = id}
+     * rather than {@code INSERT IGNORE}, which would also turn a too-long value or a too-big blob into a warning and
+     * store it cut short.
+     */
+    private boolean insertGrave(Connection c, Grave g) throws SQLException {
+        {
+            try (PreparedStatement ps = c.prepareStatement("INSERT INTO " + graves + " (" + GRAVE_COLUMNS + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    + "ON DUPLICATE KEY UPDATE id = id")) {
+                ps.setString(1, g.id().toString());
+                ps.setString(2, g.owner().toString());
+                ps.setString(3, g.ownerName().length() > 64 ? g.ownerName().substring(0, 64) : g.ownerName());
+                ps.setString(4, g.serverId());
+                ps.setString(5, g.dimension());
+                ps.setInt(6, g.x());
+                ps.setInt(7, g.y());
+                ps.setInt(8, g.z());
+                ps.setInt(9, g.placed() ? 1 : 0);
+                ps.setLong(10, g.diedAt());
+                ps.setLong(11, g.touchedAt());
+                ps.setLong(12, g.archivedAt());
+                ps.setInt(13, g.xp());
+                ps.setInt(14, g.stacks());
+                ps.setLong(15, g.revision());
+                ps.setBytes(16, g.data());
+                return ps.executeUpdate() == 1; // 1 inserted; 0 when the id is already there
+            }
+        }
+    }
+
+    @Override
+    public CompletableFuture<Optional<Grave>> grave(UUID id) {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("SELECT " + GRAVE_COLUMNS + " FROM " + graves + " WHERE id = ?")) {
+                ps.setString(1, id.toString());
+                List<Grave> rows = graveRows(ps);
+                return rows.isEmpty() ? Optional.<Grave>empty() : Optional.of(rows.get(0));
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<List<Grave>> graves(UUID owner) {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("SELECT " + GRAVE_COLUMNS + " FROM " + graves + " WHERE owner = ? ORDER BY died_at DESC")) {
+                ps.setString(1, owner.toString());
+                return graveRows(ps);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Boolean> updateGrave(Grave g) {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("UPDATE " + graves + " SET owner = ?, owner_name = ?, placed = ?, touched_at = ?, archived_at = ?, xp = ?, stacks = ?, "
+                    + "data = ?, revision = revision + 1 WHERE id = ? AND revision = ?")) {
+                ps.setString(1, g.owner().toString());
+                ps.setString(2, g.ownerName().length() > 64 ? g.ownerName().substring(0, 64) : g.ownerName());
+                ps.setInt(3, g.placed() ? 1 : 0);
+                ps.setLong(4, g.touchedAt());
+                ps.setLong(5, g.archivedAt());
+                ps.setInt(6, g.xp());
+                ps.setInt(7, g.stacks());
+                ps.setBytes(8, g.data());
+                ps.setString(9, g.id().toString());
+                ps.setLong(10, g.revision());
+                return ps.executeUpdate() > 0;
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Boolean> deleteGrave(UUID id, long revision) {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("DELETE FROM " + graves + " WHERE id = ? AND revision = ?")) {
+                ps.setString(1, id.toString());
+                ps.setLong(2, revision);
+                return ps.executeUpdate() > 0;
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<List<Grave>> gravesTouchedBefore(long before, int limit) {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("SELECT " + GRAVE_COLUMNS + " FROM " + graves + " WHERE touched_at < ? ORDER BY touched_at ASC LIMIT ?")) {
+                ps.setLong(1, before);
+                ps.setInt(2, Math.max(0, limit));
+                return graveRows(ps);
             }
         });
     }

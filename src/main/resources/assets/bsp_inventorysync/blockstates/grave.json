@@ -1,0 +1,64 @@
+{
+  "variants": {
+    "facing=north,kind=stone": {
+      "model": "bsp_inventorysync:block/grave_stone"
+    },
+    "facing=east,kind=stone": {
+      "model": "bsp_inventorysync:block/grave_stone",
+      "y": 90
+    },
+    "facing=south,kind=stone": {
+      "model": "bsp_inventorysync:block/grave_stone",
+      "y": 180
+    },
+    "facing=west,kind=stone": {
+      "model": "bsp_inventorysync:block/grave_stone",
+      "y": 270
+    },
+    "facing=north,kind=deepslate": {
+      "model": "bsp_inventorysync:block/grave_deepslate"
+    },
+    "facing=east,kind=deepslate": {
+      "model": "bsp_inventorysync:block/grave_deepslate",
+      "y": 90
+    },
+    "facing=south,kind=deepslate": {
+      "model": "bsp_inventorysync:block/grave_deepslate",
+      "y": 180
+    },
+    "facing=west,kind=deepslate": {
+      "model": "bsp_inventorysync:block/grave_deepslate",
+      "y": 270
+    },
+    "facing=north,kind=blackstone": {
+      "model": "bsp_inventorysync:block/grave_blackstone"
+    },
+    "facing=east,kind=blackstone": {
+      "model": "bsp_inventorysync:block/grave_blackstone",
+      "y": 90
+    },
+    "facing=south,kind=blackstone": {
+      "model": "bsp_inventorysync:block/grave_blackstone",
+      "y": 180
+    },
+    "facing=west,kind=blackstone": {
+      "model": "bsp_inventorysync:block/grave_blackstone",
+      "y": 270
+    },
+    "facing=north,kind=end_stone": {
+      "model": "bsp_inventorysync:block/grave_end_stone"
+    },
+    "facing=east,kind=end_stone": {
+      "model": "bsp_inventorysync:block/grave_end_stone",
+      "y": 90
+    },
+    "facing=south,kind=end_stone": {
+      "model": "bsp_inventorysync:block/grave_end_stone",
+      "y": 180
+    },
+    "facing=west,kind=end_stone": {
+      "model": "bsp_inventorysync:block/grave_end_stone",
+      "y": 270
+    }
+  }
+}

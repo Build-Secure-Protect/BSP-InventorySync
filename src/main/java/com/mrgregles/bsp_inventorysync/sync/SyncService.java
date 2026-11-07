@@ -260,8 +260,10 @@ public final class SyncService {
         UUID id = player.getUUID();
         String name = player.getGameProfile().getName();
         savingNow.merge(id, 1, Integer::sum);
+        GraveCarrier carrier = graveCarrier;
+        List<com.mrgregles.bsp_inventorysync.storage.Grave> graves = carrier == null ? List.of() : List.copyOf(carrier.pendingFor(id));
         CompletableFuture<Snapshot> raw = CompletableFuture.supplyAsync(() -> encodeChecked(tag, name), codec)
-                .thenCompose(data -> store.save(id, serverId, cause, data));
+                .thenCompose(data -> graves.isEmpty() ? store.save(id, serverId, cause, data) : store.saveWithGraves(id, serverId, cause, data, graves));
         inFlightSaves.add(raw);
         raw.whenComplete((snapshot, error) -> {
             inFlightSaves.remove(raw);
@@ -271,6 +273,9 @@ public final class SyncService {
                 return;
             }
             lastSavedTag.put(id, tag);
+            if (!graves.isEmpty()) {
+                server.execute(() -> carrier.landed(id, graves));
+            }
             store.prune(id, snapshotsKept).whenComplete((n, pruneError) -> {
                 if (pruneError != null) {
                     BSPInventorySync.LOGGER.warn("BSP-InventorySync: pruning {}'s snapshots failed: {}", name, pruneError.toString());
@@ -286,6 +291,13 @@ public final class SyncService {
      * always counts. Ids are matched ignoring case, as Velocity matches its server names: a list entry
      * "BSP-Saferoom" stands for the server "BSP-SafeRoom", with a warning, since the difference is a typo.
      */
+    @Nullable private volatile GraveCarrier graveCarrier;
+
+    /** The grave service whose new graves ride on this service's saves. */
+    public void setGraveCarrier(@Nullable GraveCarrier carrier) {
+        this.graveCarrier = carrier;
+    }
+
     public void setGives(@Nullable com.mrgregles.bsp_inventorysync.give.GiveService gives) {
         this.gives = gives;
     }
@@ -771,7 +783,13 @@ public final class SyncService {
         lastSavedTag.remove(id);
         // released once the store has really answered the save (not merely the watchdog), so no server reads
         // their data before it lands; released after a failed save too, so the player is never stuck (the error is logged)
-        return startSave(player, tag, cause).raw().handle((snapshot, error) -> null)
+        return startSave(player, tag, cause).raw().handle((snapshot, error) -> {
+                    GraveCarrier carrier = graveCarrier;
+                    if (error != null && carrier != null) {
+                        server.execute(() -> carrier.logoutSaveFailed(id));
+                    }
+                    return (Void) null;
+                })
                 .thenCompose(v -> guard(store.setPresence(id, serverId, false), "release " + player.getGameProfile().getName()))
                 .whenComplete((v, error) -> {
                     if (!heldHere.contains(id) && !pending.containsKey(id)) {

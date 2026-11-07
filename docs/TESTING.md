@@ -1,6 +1,6 @@
 # In-game testing checklist
 
-One dated section per task, newest last. Claude cannot run the Minecraft client; the owner runs these checks and reports back. The real test for this mod is two servers sharing a database.
+One dated section per task, newest last. The GameTests run headless, without a Minecraft client; the owner runs these checks in game and reports back. The real test for this mod is two servers sharing a database.
 
 ## 2026-10-17: skeleton
 
@@ -243,4 +243,82 @@ Covered headlessly (9 new GameTests, 92 in all, run twice), with one in-memory s
 - [ ] With items waiting and the popup cancelled, run `/invsync reload`: you are not asked again within 5 seconds.
 
 After the audit (6 more GameTests, 98 in all, run twice), against a store made to fail or answer late: a failed removal leaves that stack waiting, hands over the rest and the next check delivers it; a player who logs out while the store answers gets nothing put into the saved copy and the stack waits again; a fresh service (as after `/invsync reload`) reads a Cancel before asking; a give stored only in part reports what to give again; a failed read of the Cancel at a switch is read again before anything is asked; closing during a Deposit decides the Cancel on what is left. All six were checked with their fix undone and fail there.
+
+
+## 2026-11-07: graves, part 1 (GR-1): the death and the storage
+
+Covered headlessly (16 new GameTests, 114 in all, run twice): the grave stores' rules on the in-memory store and the world's data (every grave kept, the same id never stored twice, updates and removals only at the revision read), the world's data across a save (an unreadable entry kept, never dropped), the contents (stacks with their tags and slots); a death puts the drops in a grave with the slots they came from; a second death makes a second grave; a PvP death makes none and leaves the drops and orbs; the XP goes into the grave, or back as orbs when no grave is made; live totems stay in the drops; nothing while the player's data is arriving; a death in water or inside a wall finds the nearest dry spot; BSP-Core's dropped-totem entity's spot is left free; with no spot near, the last solid ground; with none, a grave without a spot; a grave reaches the database, leaves the world's data and the death is saved; a database that is down keeps the grave in the world's data and gets it at the next try, once; and one real death through Forge's own events (the drops, the slots, the 35 XP points, nothing on the ground). Five rules were checked broken and fail there (PvP, the totem's spot, the world's copy first, the orbs given back, nothing while arriving). Not covered headlessly: MySQL (`bsp_is_graves`), a real client, Curios and the backpack and dank adapters with their mods, the 30-second resend on the server tick.
+
+Only on a test server, and only if you want to check this part now: graves cannot be opened until GR-3 and GR-4, so items that go into a grave now wait there until then (they are kept). With Simply Graves removed from that server and `graves.enabled = true` in its `bsp_inventorysync-server.toml`:
+
+- [ ] Start it: the log says "graves on, kept in the network database" (or "this world's own data" without the sync) and "tables ready" with no error; `bsp_is_graves` exists.
+- [ ] With Simply Graves still installed, start it: "Simply Graves is installed, so this mod's graves stay off".
+- [ ] Die from a fall with a few items and some levels: nothing drops, no orbs; chat says "Your grave is at x y z in the Overworld on <server>"; the database has one row in `bsp_is_graves` with those stacks and the XP.
+- [ ] Die in water, then in lava: the grave's position in chat is a dry spot beside it.
+- [ ] Die in the void: chat says the grave found nowhere to stand and everything is kept.
+- [ ] Die twice without collecting: two rows.
+- [ ] Get killed by another player: no grave, the items and orbs drop for them.
+- [ ] Die with a Shatter Totem (not PvP): BSP-Core drops the totem as usual and it places itself after its timer; the grave's spot in chat is not the totem's.
+- [ ] Die with a backpack holding items: the row exists; (opening it comes with GR-3).
+
+
+## 2026-11-07: graves, part 2 (GR-2): the grave block
+
+Covered headlessly (6 new GameTests, 120 in all, run twice): a death puts the block up where the grave says, facing the way the player faced, of the stone for the place, its block entity naming the grave, the owner and the time it turns public (an hour after the death); the stone follows the place (stone, deepslate below y 0, blackstone in the Nether, end stone in the End); breaking is refused, an explosion's block list loses the grave (and only the grave), pistons, water, lava, fire, the wither, the dragon and growing features leave it, it glows at 4, has no item and drops nothing; the clients get the owner and times with the server's clock (a client ten minutes slow still counts right) and never the contents; the floating text's lines for the owner, for others before and after it turns public; and the version check carries this exact mod version. Four rules were checked broken and fail there (breaking, the explosion filter, the facing, the placing). The fluid guard could not be shown failing: this headstone's size sits exactly on vanilla's own threshold for a solid block (35/48), so vanilla already keeps water and lava out; the two guards are there in case the shape changes. Not covered headlessly (no client in the GameTest server): the model and its textures, the floating text on screen, the glow as seen, Forge refusing a client with another version or without the mod.
+
+On a test server with `graves.enabled = true` (and Simply Graves removed), with the new jar on the server and in your client:
+
+- [ ] Join with the same jar: fine. Join with the 0.4.0 jar (or none) in the client: refused, with BSP InventorySync named.
+- [ ] Die from a fall in the Overworld above y 0: a stone headstone where you died, its broad side facing the way you looked; your name over it and "Right-click to open" in gold; it glows faintly at night.
+- [ ] Die below y 0, in the Nether and in the End: deepslate, blackstone, end stone.
+- [ ] A second player looks at your grave: your name and "Public in 59:xx" in grey, counting down; walk 33 blocks away: the text goes.
+- [ ] Try to break it in survival and in creative: it stays, with the red line "A grave cannot be broken". Light TNT next to it: it stays. Push it with a piston, pour water and lava on it, light a fire beside it: it stays.
+- [ ] Middle-click it in creative: nothing is picked.
+- [ ] Right-click it: nothing yet (the grave screen is GR-3).
+
+
+## 2026-11-07: graves, part 3 (GR-3): the grave screen
+
+Covered headlessly (13 new GameTests, 133 in all, run twice): the owner opens at once and others only after the hour; the layout (main rows, hotbar row, armour and offhand; 51 stacks make two pages); a click takes a stack back to its slot, the last one removes the grave and its block and closes the screen; Take all wears the armour again, puts the sword back in its hotbar slot, leaves what does not fit in the grave and keeps the screen open, in creative mode too; part of a stack when only part fits; the XP to the first opener only; two screens never take one stack twice, and a screen that missed another server's change takes nothing until it is shown the grave again; nothing can be put in (shift-click, drag, a click with an item on the cursor); a player who leaves while the database answers finds the stack back in the grave, never in their saved inventory; a grave still on its way to the database is not opened; an empty grave's block goes at a right-click, and a right-click a claim already refused still opens the grave; the screen closes 12 blocks away; the backpacks chosen to travel with the stacks taken (and the ones inside them). Eight rules were checked broken and fail there. Found and fixed by the tests: Take all let a stack whose own slot was full take another stack's free home slot (now every stack whose slot is free goes home first). Not covered headlessly: the real client's screen, Curios slots (their items come back into the main inventory, not the Curios slot), backpack and dank contents with their mods, MySQL.
+
+On a test server with `graves.enabled = true` (Simply Graves removed), the new jar on the server and in your client:
+
+- [ ] Die with armour, a full hotbar and some main-inventory items; respawn, walk back, right-click the grave: the screen shows your things laid out as they were, armour in the bottom row.
+- [ ] Take all with an empty inventory: everything is back where it was, armour worn; the grave and its block are gone with a puff.
+- [ ] Die again; fill your inventory with blocks first, then Take all: what fits comes back, the rest stays; drop some blocks from your own inventory in the screen and click the stacks left.
+- [ ] Die with 10 levels: the first opening gives the XP back; open again: no more.
+- [ ] A second player right-clicks your grave within the hour: "only <you> may open it for another mm:ss". After the hour (or with `privateMinutes = 0`): they can, and you see "<them> opened your grave".
+- [ ] Two players with the screen open at once: a stack one takes disappears from the other's screen.
+- [ ] Right-click your grave inside someone's claim or a protected region: it opens.
+- [ ] Walk away with the screen open: it closes.
+- [ ] Shift-click and drag your own items toward the grave: nothing goes in.
+
+
+## 2026-11-07: graves, part 4 (GR-4): /grave, the admin commands and the 7-day and 30-day rules
+
+Covered headlessly (10 new GameTests, 143 in all, run twice): after six days "go to it", after seven days `/grave recover` opens the screen wherever the player is; a grave with no spot is recovered at once; the list (newest first, the put-away one left out, [Recover] linking to `/grave recover <id>` only where allowed, "(from anywhere in 7 days)" otherwise); at 31 days a grave is put away (its block gone, the owner's list empty, the admin list says so), 29 days later it is still kept and 31 days later deleted; opening restarts the clocks; a put-away grave is refused to its owner and opened by an admin; an admin gives a whole grave once (the player has it all, the grave and block gone, a second give finds nothing); a grave with backpacks is not given to a player on another server; an admin removes a grave and its block, numbered newest first; the owner on another server gets the notice once; graves on by default with 7, 30, 30 days and 60 minutes. Seven rules were checked broken and fail there. Not covered headlessly: the command parsing and tab completion, the click on [Recover] in a real client, the sweep every 10 minutes and the notice poll every minute on the server tick (called directly), MySQL.
+
+On a test server (Simply Graves removed; check `graves.enabled = true` in `bsp_inventorysync-server.toml`, a test build may have written false):
+
+- [ ] `/invsync status`: "graves on, kept in the network database".
+- [ ] Die twice in different places, then `/grave`: both listed newest first with where they are and "(from anywhere in 7 days)".
+- [ ] Die in the void: `/grave` shows it with [Recover]; click it: the screen opens where you are.
+- [ ] Set `graves.recoverAfterDays = 0`, `/invsync reload`, `/grave`: every grave has [Recover]; recover one standing on another server: you get the items; the block there goes at its next right-click.
+- [ ] `/invsync graves <you>`: numbered list. `/invsync grave open <you> 1`: the screen, for you as the admin.
+- [ ] `/invsync grave give <you> 1 <someone>` with them online: they get everything (what does not fit in the waiting popup); the block goes; you get "An admin gave your grave to ...". Run it again: "no grave number".
+- [ ] `/invsync grave remove <you> 1`: gone, block too; the log lists every stack.
+- [ ] Set `graves.archiveAfterDays = 1` and `deleteArchivedAfterDays = 1` on a test server with an old grave (or wait): within 10 minutes of a day without opening, it is put away (block gone, "Your grave ... was put away"); a day later it is deleted and the log lists what it held.
+- [ ] Have a second player open your grave after the hour while you are on another server: within a minute you see "<them> opened your grave on <server>".
+
+
+## 2026-11-07: graves audit, before 0.5.0
+
+An audit by three independent reviews found loss and duplication paths and a few rough edges; all fixed. Covered headlessly (12 new GameTests, 155 in all, run twice): a take the database answers with an error after it landed is read back and handed over; an emptied grave stays as a marker so an old copy never brings it back; a new grave reaches the database only with a snapshot, and is dropped (with its block) when the logout save fails; drops another mod cancelled give the held orbs back; the screen's picture slots refuse every take and place; the End's arrival platform, podium and pillar tops are never a grave's spot; a creative player never breaks a grave; a client with the mod joins servers without it while a server takes only the same version; a networked grave's block survives a server that cannot reach the database; a player whose data is arriving opens nothing and takes no XP; an unreadable grave is refused untouched; a grave whose block a crash lost is recovered at once. The admin commands take ids now, and give makes the grave the recipient's (the tests for those were rewritten). Every fix was checked undone and its test fails there. Also fixed: the XP tests counted merged orbs once (vanilla merges equal orbs into one that counts twice). Not covered headlessly: a real MySQL transaction (`saveWithGraves`), the real client (creative left-click, the text at screen edges), the End's rebuild in play.
+
+- [ ] On a synced test server, die and quit at once from the death screen: rejoin (here or elsewhere): the grave is there and your inventory is empty; nothing doubled.
+- [ ] Stop MySQL, die, start MySQL again within a minute, respawn: the grave appears in `/grave` (it rode on the respawn save).
+- [ ] In creative mode, left-click a grave: it stays and its name stays over it.
+- [ ] `/invsync graves <you>` shows ids; `/invsync grave give <you> <id> <someone>`: in their `/grave` with [Recover]; the block is gone.
+- [ ] Join a server without the mod (a vanilla test server) with the 0.5.0 client: allowed.
+- [ ] Die on the End's obsidian arrival platform: the grave is set beside it, not on it.
 

@@ -106,6 +106,25 @@ public final class BspCore {
         return tag == null || !tag.getBoolean(TAG_SPENT);
     }
 
+    /** BSP-Core's own entity for a dropped totem (not an {@code ItemEntity}), by reflection; null on a BSP-Core without it. */
+    @Nullable private static final Class<?> TOTEM_ENTITY = Reflect.type("com.mrgregles.bsp_core.totem.ShatterTotemItemEntity");
+    @Nullable private static final java.lang.reflect.Method TOTEM_ENTITY_ITEM = Reflect.method(TOTEM_ENTITY, "getItem");
+
+    /**
+     * A live Shatter Totem lying in the world: BSP-Core's dropped-totem entity (which places itself after its timer), or
+     * a plain item entity holding one. A grave never takes the spot such a totem lies on.
+     */
+    public static boolean isDroppedTotem(net.minecraft.world.entity.Entity entity) {
+        if (entity instanceof net.minecraft.world.entity.item.ItemEntity item) {
+            return isLiveTotem(item.getItem());
+        }
+        if (TOTEM_ENTITY != null && TOTEM_ENTITY.isInstance(entity)) {
+            Object stack = TOTEM_ENTITY_ITEM == null ? null : Reflect.call(TOTEM_ENTITY_ITEM, entity);
+            return !(stack instanceof ItemStack s) || isLiveTotem(s); // its own entity: a totem unless it says otherwise
+        }
+        return false;
+    }
+
     /**
      * Takes every live totem out of the player's inventory (main, armour, offhand) and off the cursor,
      * and returns them. Used just before a restore is applied, so a totem BSP-Core handed back a few

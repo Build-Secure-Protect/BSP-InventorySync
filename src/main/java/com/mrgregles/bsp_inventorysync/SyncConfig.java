@@ -36,6 +36,7 @@ public final class SyncConfig {
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> EXCLUDE_CAPABILITIES;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> NETWORK_SERVERS;
     public static final ForgeConfigSpec.IntValue ARRIVAL_TIMEOUT_SECONDS;
+    public static final ForgeConfigSpec.IntValue GIVE_POLL_SECONDS;
     public static final ForgeConfigSpec.BooleanValue KICK_ON_TIMEOUT;
 
     /** The comment on each key whose value now lives in {@link NetworkConfig}; the key stays so that Forge keeps an old value until it is moved. */
@@ -89,6 +90,10 @@ public final class SyncConfig {
                 .defineInRange("timeoutSeconds", 10, 1, 300);
         KICK_ON_TIMEOUT = b.comment("After the wait: false applies the last known snapshot and tells the player it may be out of date; true refuses the login so they can try again.")
                 .define("kickOnTimeout", false);
+        b.pop();
+        b.comment("/invsync give: items for a player, handed over on whichever server they are on.").push("give");
+        GIVE_POLL_SECONDS = b.comment("How often this server looks for items waiting for the players on it (one small query, only while players are online).")
+                .defineInRange("pollSeconds", 5, 1, 300);
         b.pop();
         SPEC = b.build();
     }

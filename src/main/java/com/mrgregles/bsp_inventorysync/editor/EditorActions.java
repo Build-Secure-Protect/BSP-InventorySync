@@ -37,9 +37,18 @@ import java.util.concurrent.CompletableFuture;
 public final class EditorActions {
     private EditorActions() {}
 
+    /**
+     * Minecraft drops every inventory click of a spectator (it only sends the screen again), so the editor
+     * would show but never respond: it is not opened for one, and closes if its admin turns spectator.
+     */
+    static final String SPECTATOR = "Leave spectator mode to use the editor: Minecraft ignores a spectator's clicks in inventory screens.";
+
     /** Opens the editor; returns null when it opened, or the reason it did not. */
     @Nullable
     public static String open(ServerPlayer admin, ServerPlayer target, @Nullable String word) {
+        if (admin.isSpectator()) {
+            return SPECTATOR;
+        }
         if (admin.getUUID().equals(target.getUUID())) {
             return "You cannot edit your own inventory here.";
         }
@@ -121,6 +130,9 @@ public final class EditorActions {
      * there), or when they have no saved data. The reason is null when the editor opened.
      */
     public static CompletableFuture<String> openOffline(ServerPlayer admin, UUID id, String name, @Nullable String word, @Nullable SyncService sync) {
+        if (admin.isSpectator()) {
+            return CompletableFuture.completedFuture(SPECTATOR);
+        }
         if (sync == null) {
             return CompletableFuture.completedFuture(name + " is not online here, and editing offline players needs the sync on.");
         }
@@ -144,6 +156,10 @@ public final class EditorActions {
                 }
                 if (admin.server.getPlayerList().getPlayer(id) != null) {
                     out.complete(name + " just joined this server; run the command again to edit them live.");
+                    return;
+                }
+                if (admin.isSpectator()) {
+                    out.complete(SPECTATOR); // turned spectator while the snapshot was read
                     return;
                 }
                 List<ItemCatalog.Category> categories = word == null || word.isBlank() ? ItemCatalog.categories(admin.server) : List.of(ItemCatalog.search(word.trim()));

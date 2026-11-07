@@ -56,11 +56,19 @@ public final class SyncEvents {
             s.onLogin(player, System.currentTimeMillis());
         } else {
             SyncService.postRestored(new InventoryRestoredEvent(player, 0, "", false, List.of(), 0));
+            com.mrgregles.bsp_inventorysync.give.GiveService g = com.mrgregles.bsp_inventorysync.give.GiveService.peek();
+            if (g != null) {
+                g.arrived(player, true); // with the sync off every login is a join
+            }
         }
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        com.mrgregles.bsp_inventorysync.give.GiveService g = com.mrgregles.bsp_inventorysync.give.GiveService.peek();
+        if (g != null) {
+            g.loggedOut(event.getEntity().getUUID());
+        }
         SyncService s = Sync.active();
         if (s != null && event.getEntity() instanceof ServerPlayer player) {
             s.onLogout(player);
@@ -77,9 +85,16 @@ public final class SyncEvents {
 
     @SubscribeEvent
     public static void onTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
         SyncService s = Sync.active();
-        if (s != null && event.phase == TickEvent.Phase.END) {
+        if (s != null) {
             s.tick(System.currentTimeMillis());
+        }
+        com.mrgregles.bsp_inventorysync.give.GiveService g = com.mrgregles.bsp_inventorysync.give.GiveService.peek();
+        if (g != null) {
+            g.tick(System.currentTimeMillis());
         }
     }
 

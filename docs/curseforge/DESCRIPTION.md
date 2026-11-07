@@ -70,7 +70,7 @@ BSP-Core already handles a totem when its owner leaves: it is placed in the worl
 
 ## Admin commands
 
-The mod has no screens; everything an operator needs is in chat, under `/invsync` (permission level 2).
+Everything an operator needs is under `/invsync` (permission level 2; the editor level 3). Its two screens are vanilla chest screens, so players and operators install nothing.
 
 ![/invsync status and snapshots](https://raw.githubusercontent.com/Build-Secure-Protect/BSP-InventorySync/main/docs/curseforge/images/invsync-status.png)
 
@@ -83,6 +83,8 @@ The mod has no screens; everything an operator needs is in chat, under `/invsync
 | `/invsync pin <player> <version>` / `unpin` | A pinned snapshot is never removed by rotation. |
 | `/invsync save <player>` | Takes a snapshot now. |
 | `/invsync dump <player>` | Shows how big each part of the player's data is and writes the whole thing as readable text under `world/bsp_inventorysync/dumps/`, for a bug report. |
+| `/invsync give <player> <item> [count]` | Gives an item on any server of the network, and from the console. What fits goes in at once; the rest waits for the player wherever they are, and they are asked in a small chest screen to make room, then click Deposit. Offline players get it at their next login. Shatter Totems are refused. |
+| `/invsync edit <player>` | Opens the player's inventory and ender chest in a chest screen (level 3), with a creative item list, Trash, Save and Confirm. Works for offline players on their newest snapshot. |
 | `/invsync reload` | Re-reads the config and reconnects to the database and Redis without disturbing the players online. |
 
 ### Snapshots and rollback

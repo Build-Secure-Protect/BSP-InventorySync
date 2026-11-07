@@ -24,12 +24,19 @@ import java.util.concurrent.Executors;
 public final class Sync {
     @Nullable private static volatile SyncService active;
     @Nullable private static volatile ExecutorService codecThread;
+    @Nullable private static volatile com.mrgregles.bsp_inventorysync.give.GiveService gives;
 
     private Sync() {}
 
     @Nullable
     public static SyncService active() {
         return active;
+    }
+
+    /** The give service on the sync's store, while the sync runs. */
+    @Nullable
+    public static com.mrgregles.bsp_inventorysync.give.GiveService gives() {
+        return gives;
     }
 
     public static boolean enabled() {
@@ -89,6 +96,9 @@ public final class Sync {
         if (network.isEmpty()) {
             BSPInventorySync.LOGGER.warn("BSP-InventorySync: sync.networkServers is empty, so a snapshot saved by any server is applied; list this network's server ids to refuse others");
         }
+        com.mrgregles.bsp_inventorysync.give.GiveService g = new com.mrgregles.bsp_inventorysync.give.GiveService(server, store, serverId, SyncConfig.getOr(SyncConfig.GIVE_POLL_SECONDS, 5) * 1000L);
+        service.setGives(g);
+        gives = g;
         active = service;
         service.onServerStarted();
         BSPInventorySync.LOGGER.info("BSP-InventorySync: sync started as \"{}\" on {} with {}", serverId, db.describe(), redisNote);
@@ -126,6 +136,7 @@ public final class Sync {
             return;
         }
         active = null;
+        gives = null;
         service.shutdown(10_000);
         ExecutorService codec = codecThread;
         codecThread = null;

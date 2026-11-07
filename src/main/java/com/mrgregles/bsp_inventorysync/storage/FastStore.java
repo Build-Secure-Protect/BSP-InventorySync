@@ -256,6 +256,21 @@ public final class FastStore implements SyncStore {
     }
 
     @Override
+    public CompletableFuture<Give> addGive(UUID player, byte[] item, String by) {
+        return inner.addGive(player, item, by);
+    }
+
+    @Override
+    public CompletableFuture<List<Give>> gives(java.util.Collection<UUID> players) {
+        return inner.gives(players);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> takeGive(long id) {
+        return inner.takeGive(id);
+    }
+
+    @Override
     public CompletableFuture<Boolean> ping() {
         return inner.ping();
     }

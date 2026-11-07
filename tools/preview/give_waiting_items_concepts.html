@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waiting Items Concepts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0B0F14; --panel: #10151C; --line: #2A2F3A;
+    --accent: #19D3B0; --violet: #B58CFF; --gold: #FFD23A; --bad: #FF6B5C;
+    --text: #E6EAF2; --muted: #9AA3B5;
+    --gui: #C6C6C6; --slot: #8B8B8B;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "IBM Plex Sans", system-ui, sans-serif; line-height: 1.5; }
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1, h2, h3 { font-family: "Silkscreen", monospace; font-weight: 700; letter-spacing: 0.5px; margin: 0; }
+  h1 { font-size: 28px; color: var(--accent); }
+  h2 { font-size: 19px; margin-bottom: 4px; }
+  h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; margin: 16px 0 6px; }
+  p { margin: 8px 0; }
+  .lede { color: var(--muted); max-width: 860px; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; color: var(--violet); }
+  .option { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; margin-top: 22px; }
+  .option.pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .tag { display: inline-block; font-family: "Silkscreen", monospace; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-left: 8px; vertical-align: middle; background: var(--accent); color: var(--bg); }
+  .screens { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
+  .screen-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .caption { font-size: 13px; color: var(--muted); max-width: 400px; }
+  /* a vanilla container screen */
+  .gui { background: var(--gui); border: 3px solid; border-color: #FFFFFF #555555 #555555 #FFFFFF; border-radius: 4px; padding: 7px 7px 8px; width: max-content; }
+  .gui .title { font-family: "Silkscreen", monospace; font-size: 11px; color: #404040; margin: 0 0 4px 1px; }
+  .grid { display: grid; grid-template-columns: repeat(9, 36px); gap: 0; }
+  .slot { width: 36px; height: 36px; background: var(--slot); border: 2px solid; border-color: #373737 #FFFFFF #FFFFFF #373737; position: relative; display: flex; align-items: center; justify-content: center; }
+  .slot .ic { width: 24px; height: 24px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-family: "Silkscreen", monospace; font-size: 8px; color: #fff; text-shadow: 1px 1px 0 #0008; }
+  .slot .n { position: absolute; right: 1px; bottom: -2px; font-family: "Silkscreen", monospace; font-size: 10px; color: #fff; text-shadow: 1px 1px 0 #3F3F3F; }
+  .slot.btn { background: #6F7D8C; }
+  .slot.hl { outline: 2px solid var(--gold); outline-offset: -2px; z-index: 1; }
+  .slot.lock::after { content: ""; position: absolute; inset: 0; background: #0006; }
+  .gap { height: 8px; }
+  .own .title { color: #6b6b6b; }
+  .own .grid { opacity: 0.55; }
+  ul.pros { padding-left: 18px; margin: 6px 0 0; font-size: 14px; }
+  ul.pros li { margin: 3px 0; }
+  .good { color: var(--accent); }
+  .meh { color: var(--gold); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .decisions ol { padding-left: 22px; }
+  .decisions li { margin: 10px 0; }
+  .decisions .d { color: var(--accent); font-weight: 600; }
+  .chat { background: #0008; padding: 8px 10px; font-family: "Silkscreen", monospace; font-size: 11px; color: #fff; width: 420px; border-radius: 4px; }
+  .chat .l { margin: 3px 0; }
+  .chat .b { color: #6CC24A; } .chat .r { color: #FF6B5C; } .chat .g { color: #AAAAAA; }
+  .titlebox { width: 420px; text-align: center; padding: 18px 0 8px; font-family: "Silkscreen", monospace; }
+  .titlebox .t { font-size: 22px; color: #FFD23A; text-shadow: 2px 2px 0 #3F3F00; } .titlebox .s { font-size: 11px; color: #fff; }
+  .scene { background: linear-gradient(#5B8FC9, #8FB5DE 55%, #5E8A3A 55%); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .foot { color: var(--muted); font-size: 13px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Waiting Items Concepts</h1>
+  <p class="lede">
+    <code>/invsync give &lt;player&gt; &lt;item&gt; [count]</code> puts what fits straight into the player's inventory. When their
+    inventory is full, the rest waits and the player is asked to make room, then click Deposit; Cancel puts it off until their
+    next login. The mod is server-only, so the "popup" has to be something the server can show on an unmodded client: a vanilla
+    chest screen (A, B) or chat and an on-screen title (C). The player's own inventory sits under a chest screen as always. Here
+    Steve was given 3 stacks of diamonds, a diamond sword and 20 golden apples, and only one stack fitted.
+  </p>
+
+  <div id="options"></div>
+
+  <div class="legend" id="legend"></div>
+
+  <section class="option decisions">
+    <h2>Decisions</h2>
+    <ol>
+      <li><b>Layout.</b> A, B or C. <span class="d">Default: B, three rows</span>: room to show up to 18 waiting stacks at once, a line telling them what to do, and the two buttons apart from each other.</li>
+      <li><b>When it opens.</b> <span class="d">Default: as soon as something is left over and the player has no other screen open, is alive, and their data has finished arriving</span>; if a chest or another screen is open, it waits until that closes, never covering it.</li>
+      <li><b>Their own inventory while it is open.</b> <span class="d">Default: usable, so they can make room right there (move items, drop them with Q or by dragging out of the screen)</span>. Nothing can be put into the popup, and the waiting items cannot be taken one by one: only Deposit moves them.</li>
+      <li><b>Deposit when there is still not enough room.</b> <span class="d">Default: what fits goes in, the popup stays open with the rest, and its info line says how many free slots are still needed</span>. When everything is in, it closes and chat says what they received.</li>
+      <li><b>Cancel and Esc.</b> <span class="d">Default: closing with Esc counts as Cancel</span>. Chat then says "4 stacks are waiting for you; you will be asked again at your next login."</li>
+      <li><b>"Next login".</b> <span class="d">Default: the next time they join the network, not a server switch</span>: a switch through BSP-Teleport does not ask again (it saves as a transfer), so Cancel is not undone within minutes. A Cancel is remembered on every server. A switch through Velocity's own <code>/server</code> looks like a join to this mod and does ask again.</li>
+      <li><b>Waiting items are never lost.</b> <span class="d">Default: they stay in the network database until deposited</span>, so a crash, a server switch or a logout with the popup open keeps them waiting. Each stack is taken out of the database just before it goes into the inventory, so it can never arrive twice.</li>
+    </ol>
+  </section>
+
+  <p class="foot">
+    Already decided (2026-11-07): <code>/invsync give &lt;player&gt; &lt;item id&gt; [count]</code> with tab completion and NBT, as
+    vanilla <code>/give</code>; on any server and from the console; operator level 2; straight in when the player is on that server,
+    handed over within a few seconds by the server they are on, or at their next login when offline; Shatter Totems refused; the
+    giver told where it went, the player told what they received, one log line; at most 100 stacks' worth, <code>give.pollSeconds</code> 5.
+    Item icons here are coloured tiles with short labels; in game they are the real items.
+  </p>
+</main>
+
+<script>
+const IT = {
+  dia: ["#3FD0D4", "DIA", "Diamond"], ds: ["#4FB8C9", "SWD", "Diamond sword"], ga: ["#E8C33A", "GAP", "Golden apple"],
+  st: ["#7D7D7D", "STN", "Stone"], oak: ["#A0773D", "OAK", "Oak planks"], tch: ["#E8B341", "TCH", "Torch"], br: ["#B5803A", "BRD", "Bread"],
+  dp: ["#4FB8C9", "PCK", "Diamond pickaxe"], dirt: ["#7A5A3A", "DRT", "Dirt"], cob: ["#6A6A6A", "COB", "Cobblestone"],
+  info: ["#E9E4D2", "?", "Info (paper): Make room in your inventory, then click Deposit. 2 more free slots needed."],
+  more: ["#E9E4D2", "+3", "Paper: 3 more stacks waiting"],
+  dep: ["#6CC24A", "DEP", "Deposit (lime concrete)"], can: ["#C2453A", "X", "Cancel (red concrete)"],
+  fill: ["#1E1E1E", "", "Filler (black glass pane)"]
+};
+function slot(s) {
+  if (!s) return '<div class="slot"></div>';
+  const [k, n, cls] = s;
+  const it = IT[k];
+  return `<div class="slot ${cls || ""}" title="${it[2]}"><div class="ic" style="background:${it[0]}">${it[1]}</div>${n ? `<span class="n">${n}</span>` : ""}</div>`;
+}
+function gui(title, rows, extra) {
+  return `<div class="gui ${extra || ""}"><div class="title">${title}</div><div class="grid">${rows.flat().map(slot).join("")}</div></div>`;
+}
+const E = null;
+const B = k => [k, 0, "btn"];
+const F = () => ["fill", 0, "btn"];
+const own = () => gui("Your inventory (usable: make room here)", [
+  [["st", 64], ["oak", 64], ["cob", 64], ["dirt", 64], ["st", 64], ["dirt", 64], ["cob", 64], ["oak", 64], ["st", 64]],
+  [["dirt", 64], ["st", 64], ["cob", 64], ["dirt", 64], ["oak", 64], ["st", 64], ["cob", 64], ["dirt", 64], ["st", 64]],
+  [["cob", 64], ["dirt", 64], ["st", 64], ["oak", 64], ["cob", 64], ["dirt", 64], ["st", 64], ["cob", 64], ["dia", 64]],
+  [["ds"], ["dp"], ["br", 12], ["tch", 64], ["st", 64], ["dirt", 64], ["cob", 64], ["oak", 64], ["st", 64]]], "own");
+const WAITING = [["dia", 64], ["dia", 64], ["ds"], ["ga", 20]];
+
+const OPTIONS = [
+  {
+    title: "A: One row", cls: "",
+    screens: [
+      [gui("Items waiting for you", [[...WAITING, E, F(), B("info"), B("dep"), B("can")]]) + own(),
+       "A one-row chest: up to 5 waiting stacks (a paper \"+N more\" in the fifth slot when there are more), the info paper, Deposit, Cancel."]
+    ],
+    pros: [["good", "Small: covers little of the screen."],
+           ["meh", "Only 5 stacks visible; Deposit and Cancel sit side by side, easy to mis-click."]]
+  },
+  {
+    title: "B: Three rows", cls: "pick", tag: true,
+    screens: [
+      [gui("Items waiting for you", [[...WAITING, E, E, E, E, E], [E, E, E, E, E, E, E, E, E], [B("can"), F(), F(), F(), B("info"), F(), F(), F(), B("dep")]]) + own(),
+       "A three-row chest: up to 18 waiting stacks in the top two rows; the bottom row has Cancel on the left, the info paper in the middle, Deposit on the right."]
+    ],
+    pros: [["good", "Room for 18 stacks, so a big give is visible at a glance."],
+           ["good", "Cancel and Deposit at opposite ends; the info paper says how many free slots are needed."],
+           ["meh", "Covers the middle of the screen while open (it is only open until Deposit or Cancel)."]]
+  },
+  {
+    title: "C: Chat and a title, no screen", cls: "",
+    screens: [
+      [`<div class="scene"><div class="titlebox"><div class="t">Items waiting</div><div class="s">Make room, then click Deposit in chat</div></div>
+        <div class="chat"><div class="l g">[Server] You were given 64 Diamond.</div>
+        <div class="l">4 stacks are waiting for you: your inventory is full.</div>
+        <div class="l"><span class="b">[Deposit]</span> &nbsp; <span class="r">[Later]</span></div></div></div>`,
+       "No screen: a title on screen and a chat line with two clickable words. Hovering a word lists the waiting items."]
+    ],
+    pros: [["good", "Never interrupts: the player keeps playing and clicks when ready."],
+           ["meh", "Easy to miss once the chat scrolls; the items cannot be seen, only listed on hover."],
+           ["meh", "Clicking runs a command, so every player needs a small /invsync claim command open to them."]]
+  }
+];
+
+document.getElementById("options").innerHTML = OPTIONS.map(o => `
+  <section class="option ${o.cls}">
+    <h2>${o.title}${o.tag ? '<span class="tag">Default</span>' : ""}</h2>
+    <div class="screens">${o.screens.map(([html, cap]) => `<div class="screen-wrap">${html}<div class="caption">${cap}</div></div>`).join("")}</div>
+    <ul class="pros">${o.pros.map(([c, t]) => `<li class="${c}">${t}</li>`).join("")}</ul>
+  </section>`).join("");
+
+document.getElementById("legend").innerHTML = ["dep", "can", "info", "fill"].map(k => `<span><i style="background:${IT[k][0]}"></i>${IT[k][2]}</span>`).join("");
+</script>
+</body>
+</html>

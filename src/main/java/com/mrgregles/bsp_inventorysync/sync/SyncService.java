@@ -120,6 +120,8 @@ public final class SyncService {
     private final Set<String> caseWarned = ConcurrentHashMap.newKeySet();
     /** Where snapshots are compressed and decompressed: one background thread on a real server, the calling thread in tests. */
     private volatile Executor codec = Runnable::run;
+    /** Hands over waiting items at each arrival ({@code /invsync give}); null in tests that do not need it. */
+    @Nullable private volatile com.mrgregles.bsp_inventorysync.give.GiveService gives;
     /** See {@link #failNextRestore}. */
     @Nullable private volatile RuntimeException restoreFault;
 
@@ -284,6 +286,10 @@ public final class SyncService {
      * always counts. Ids are matched ignoring case, as Velocity matches its server names: a list entry
      * "BSP-Saferoom" stands for the server "BSP-SafeRoom", with a warning, since the difference is a typo.
      */
+    public void setGives(@Nullable com.mrgregles.bsp_inventorysync.give.GiveService gives) {
+        this.gives = gives;
+    }
+
     public void setNetworkServers(Collection<? extends String> ids) {
         Set<String> copy = Set.copyOf(ids);
         networkServers = copy;
@@ -676,6 +682,12 @@ public final class SyncService {
             postRestored(new InventoryRestoredEvent(p.player, 0, "", fallback, List.of(), 0));
         }
         arrivals.put(id, new Arrival(id, outcome, version, now - p.started));
+        com.mrgregles.bsp_inventorysync.give.GiveService g = gives;
+        if (g != null) {
+            // a join to the network, unless they came through BSP-Teleport (saved as a transfer): a join clears a Cancel of the waiting items
+            boolean join = loaded == null || loaded.snapshot().cause() != SaveCause.TRANSFER;
+            g.arrived(p.player, join);
+        }
         if (fallback) {
             p.player.displayClientMessage(Component.literal("Your items may be out of date: the server you came from did not answer in time. Tell an admin if anything is missing.").withStyle(ChatFormatting.GOLD), false);
         }

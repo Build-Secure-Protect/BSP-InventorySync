@@ -57,6 +57,184 @@ public class EditorTests {
         return String.join(" | ", lines.stream().map(Component::getString).toList());
     }
 
+    /** What the admin's client shows, rebuilt from the packets the server sent it (as the vanilla client applies them). */
+    static final class ClientView {
+        final io.netty.channel.embedded.EmbeddedChannel channel;
+        final java.util.Map<Integer, ItemStack> slots = new java.util.HashMap<>();
+        ItemStack carried = ItemStack.EMPTY;
+        int containerId = -1, stateId;
+        final List<String> log = new java.util.ArrayList<>();
+
+        ClientView(ServerPlayer admin) {
+            channel = (io.netty.channel.embedded.EmbeddedChannel) admin.connection.connection.channel();
+        }
+
+        ClientView read() {
+            for (Object out; (out = channel.readOutbound()) != null; ) {
+                log.add(out.getClass().getSimpleName());
+                if (out instanceof net.minecraft.network.protocol.game.ClientboundOpenScreenPacket open) {
+                    containerId = open.getContainerId();
+                    slots.clear();
+                } else if (out instanceof net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket c && c.getContainerId() == containerId) {
+                    stateId = c.getStateId();
+                    for (int i = 0; i < c.getItems().size(); i++) {
+                        slots.put(i, c.getItems().get(i));
+                    }
+                    carried = c.getCarriedItem();
+                } else if (out instanceof net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket c) {
+                    if (c.getContainerId() == -1) {
+                        carried = c.getItem();
+                    } else if (c.getContainerId() == containerId) {
+                        stateId = c.getStateId();
+                        slots.put(c.getSlot(), c.getItem());
+                    }
+                }
+            }
+            return this;
+        }
+
+        ItemStack at(int slot) {
+            return slots.getOrDefault(slot, ItemStack.EMPTY);
+        }
+
+        /** A plain click as the vanilla client sends it: the slot's item and the cursor as the client predicts them. */
+        void click(ServerPlayer admin, int slot, int button) {
+            ItemStack inSlot = at(slot).copy();
+            it.unimi.dsi.fastutil.ints.Int2ObjectMap<ItemStack> changed = new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>();
+            ItemStack predictedCarried;
+            if (carried.isEmpty()) {
+                changed.put(slot, ItemStack.EMPTY);
+                predictedCarried = inSlot;
+            } else {
+                changed.put(slot, carried.copy());
+                predictedCarried = inSlot;
+            }
+            slots.put(slot, changed.get(slot));
+            carried = predictedCarried;
+            admin.connection.handleContainerClick(new net.minecraft.network.protocol.game.ServerboundContainerClickPacket(containerId, stateId, slot, button, ClickType.PICKUP, predictedCarried, changed));
+            read();
+        }
+    }
+
+    @GameTest(template = EMPTY)
+    public static void through_the_real_screen_the_admin_sees_and_moves_the_players_items(GameTestHelper h) {
+        ServerPlayer admin = TestPlayers.mockServerPlayer(h);
+        ServerPlayer t = target(h);
+        t.getEnderChestInventory().setItem(0, new ItemStack(Items.EMERALD, 5));
+        ClientView client = new ClientView(admin);
+        client.read();
+        h.assertTrue(EditorActions.open(admin, t, null) == null, "opened");
+        client.read();
+        h.assertTrue(admin.containerMenu instanceof EditorMenu, "the editor is the open menu: " + admin.containerMenu);
+        h.assertTrue(client.containerId == admin.containerMenu.containerId, "the screen opened: " + client.log);
+        h.assertTrue(client.at(27).is(Items.DIAMOND_SWORD) && client.at(0).is(Items.STONE), "the client shows the player's items: 27=" + client.at(27) + " 0=" + client.at(0) + " log " + client.log);
+
+        client.click(admin, TOOLBAR + 1, 0); // the Ender chest tab
+        h.assertTrue(client.at(0).is(Items.EMERALD) && client.carried.isEmpty(), "the ender chest shows, nothing on the cursor: 0=" + client.at(0) + " carried=" + client.carried + " log " + client.log);
+        client.click(admin, 0, 0); // pick up the emeralds
+        h.assertTrue(client.carried.is(Items.EMERALD) && client.at(0).isEmpty(), "emeralds on the cursor: " + client.carried + " 0=" + client.at(0));
+        client.click(admin, 3, 0); // put them in slot 3
+        h.assertTrue(client.at(3).is(Items.EMERALD) && client.at(3).getCount() == 5 && client.carried.isEmpty(), "moved to slot 3: 3=" + client.at(3) + " carried=" + client.carried);
+        EditorSession session = ((EditorMenu) admin.containerMenu).session();
+        h.assertTrue(session.enderChest().get(3).is(Items.EMERALD), "and in the working copy");
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void a_spectator_admin_is_refused_and_an_open_editor_closes_when_they_turn_spectator(GameTestHelper h) {
+        ServerPlayer t = target(h);
+        ServerPlayer spectator = TestPlayers.mockServerPlayer(h);
+        spectator.setGameMode(net.minecraft.world.level.GameType.SPECTATOR);
+        String refused = EditorActions.open(spectator, t, null);
+        h.assertTrue(refused != null && refused.contains("spectator"), "refused: " + refused);
+        h.assertTrue(spectator.containerMenu == spectator.inventoryMenu, "nothing opened");
+        String offline = EditorActions.openOffline(spectator, java.util.UUID.randomUUID(), "Alex", null, null).join();
+        h.assertTrue(offline != null && offline.contains("spectator"), "refused for an offline player too: " + offline);
+
+        ServerPlayer admin = TestPlayers.mockServerPlayer(h);
+        h.assertTrue(EditorActions.open(admin, t, null) == null && admin.containerMenu instanceof EditorMenu, "opens for an admin in survival");
+        EditorSession session = ((EditorMenu) admin.containerMenu).session();
+        session.click(27, 0, false); // the sword on the cursor
+        admin.setGameMode(net.minecraft.world.level.GameType.SPECTATOR);
+        h.assertTrue(admin.containerMenu == admin.inventoryMenu, "closed on turning spectator: " + admin.containerMenu);
+        h.assertTrue(t.getInventory().getItem(0).is(Items.DIAMOND_SWORD) && admin.getInventory().countItem(Items.DIAMOND_SWORD) == 0, "nothing changed and nothing carried out");
+        h.succeed();
+    }
+
+    /** Another mod's say in a game-mode change, for one player: cancel it, or turn it into another mode. */
+    static final class GameModeMeddler {
+        final java.util.UUID player;
+        boolean cancel;
+        net.minecraft.world.level.GameType redirect;
+
+        GameModeMeddler(java.util.UUID player) {
+            this.player = player;
+        }
+
+        @net.minecraftforge.eventbus.api.SubscribeEvent
+        public void on(net.minecraftforge.event.entity.player.PlayerEvent.PlayerChangeGameModeEvent e) {
+            if (!e.getEntity().getUUID().equals(player)) {
+                return; // other tests run meanwhile
+            }
+            if (cancel) {
+                e.setCanceled(true);
+            } else if (redirect != null) {
+                e.setNewGameMode(redirect);
+            }
+        }
+    }
+
+    @GameTest(template = EMPTY)
+    public static void the_editor_follows_the_game_mode_other_mods_settle_on(GameTestHelper h) {
+        ServerPlayer t = target(h);
+        ServerPlayer admin = TestPlayers.mockServerPlayer(h);
+        GameModeMeddler meddler = new GameModeMeddler(admin.getUUID());
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(meddler);
+        try {
+            EditorActions.open(admin, t, null);
+            meddler.cancel = true;
+            h.assertTrue(!admin.setGameMode(net.minecraft.world.level.GameType.SPECTATOR) && !admin.isSpectator(), "another mod refused the switch");
+            h.assertTrue(admin.containerMenu instanceof EditorMenu, "so the editor stays open");
+            meddler.cancel = false;
+            meddler.redirect = net.minecraft.world.level.GameType.SPECTATOR;
+            admin.setGameMode(net.minecraft.world.level.GameType.CREATIVE); // another mod turns it into spectator
+            h.assertTrue(admin.isSpectator() && admin.containerMenu == admin.inventoryMenu, "closed: the mode set is spectator");
+        } finally {
+            net.minecraftforge.common.MinecraftForge.EVENT_BUS.unregister(meddler);
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void an_offline_editor_never_opens_for_an_admin_who_turned_spectator_during_the_read(GameTestHelper h) {
+        MemoryStore memory = new MemoryStore();
+        java.util.UUID id = java.util.UUID.randomUUID();
+        savedPlayer(h, memory, id);
+        java.util.concurrent.CompletableFuture<Void> gate = new java.util.concurrent.CompletableFuture<>();
+        // the store answers where the player is only when the gate opens: a slow database
+        com.mrgregles.bsp_inventorysync.storage.SyncStore slow = (com.mrgregles.bsp_inventorysync.storage.SyncStore) java.lang.reflect.Proxy.newProxyInstance(
+                com.mrgregles.bsp_inventorysync.storage.SyncStore.class.getClassLoader(), new Class<?>[] {com.mrgregles.bsp_inventorysync.storage.SyncStore.class},
+                (proxy, method, args) -> {
+                    Object answer;
+                    try {
+                        answer = method.invoke(memory, args);
+                    } catch (java.lang.reflect.InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                    return method.getName().equals("presence") ? gate.thenCompose(v -> (java.util.concurrent.CompletableFuture<?>) answer) : answer;
+                });
+        SyncService sync = new SyncService(h.getLevel().getServer(), slow, "hub");
+        ServerPlayer admin = TestPlayers.mockServerPlayer(h);
+        java.util.concurrent.CompletableFuture<String> opening = EditorActions.openOffline(admin, id, "Alex", null, sync);
+        h.assertTrue(!opening.isDone(), "waiting for the database");
+        admin.setGameMode(net.minecraft.world.level.GameType.SPECTATOR);
+        gate.complete(null);
+        String refused = opening.join();
+        h.assertTrue(refused != null && refused.contains("spectator"), "refused once the read is done: " + refused);
+        h.assertTrue(admin.containerMenu == admin.inventoryMenu, "nothing opened");
+        h.succeed();
+    }
+
     @GameTest(template = EMPTY)
     public static void items_from_the_list_reach_the_player_only_on_confirm(GameTestHelper h) {
         ServerPlayer admin = TestPlayers.mockServerPlayer(h);

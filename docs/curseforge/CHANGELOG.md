@@ -47,6 +47,8 @@ Your inventory and everything about your character follow you when you move betw
 - `snapshots <player>`: the player's snapshots, newest first, with cause, server, age and size.
 - `restore <player> <version>`: a rollback to any snapshot. `resync <player>`: back to the newest.
 - `pin` / `unpin <player> <version>`, `save <player>`, `dump <player>` (readable copy of the player's data for a bug report), `reload`.
+- `give <player> <item> [count]`: an item on any server of the network, and from the console; what does not fit waits, and the player is asked to make room in a small chest screen with Deposit and Cancel.
+- `edit <player> [word]` (level 3): the player's inventory and ender chest in a chest screen with a creative item list.
 
 **For mod developers**
 - A small public api: register your own data module, exclude items from snapshots, ask whether a player is still syncing, announce a transfer. Two Forge events: `InventorySavedEvent` and `InventoryRestoredEvent`. See `docs/API.md` in the repository.

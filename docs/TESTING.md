@@ -218,3 +218,29 @@ Covered headlessly (1 new GameTest, 79 in all, run twice): Forge's dimension-cha
 - [ ] Drink a potion of slow falling or night vision in the Nether, then teleport to the Overworld with BSP-Teleport: the icon stays, night vision stays bright, and slow falling still slows a fall.
 - [ ] A portal trip still shows the right level and effects.
 
+
+## 2026-11-07: the inventory editor and spectator mode
+
+Covered headlessly (2 new GameTests, 81 in all, run twice): the editor through the real screen (an end-to-end test sending the client's click packets to the server and rebuilding the admin's view from the packets sent back: the player's items show, the Ender chest tab switches, items move); and a spectator admin is refused for online and offline players, while an open editor closes without changes when its admin turns spectator. The spectator test was checked with each check switched off and fails there. After the audit (2 more GameTests, 83 in all, run twice): an offline editor is refused when the admin turns spectator while the snapshot is read (a store that answers late), and the close follows the game mode other mods settle on (a cancelled switch leaves the editor open; a switch another mod turns into spectator closes it). Both were checked with their fix undone and fail there. That vanilla drops a spectator's clicks was read from Forge 47.4.10's `handleContainerClick` and reproduced with a spectator mock admin, not seen in game.
+
+- [ ] In spectator mode, `/invsync edit <player>`: the red line "Leave spectator mode to use the editor ..." and no screen.
+- [ ] In creative or survival, `/invsync edit <player>`: the player's items show; click Ender chest, then Inventory: the tabs switch; take an item from the Items tab and place it in an empty slot; Save, Confirm: the player has it.
+- [ ] With the editor open, switch to spectator (`/gamemode spectator` from another operator or a command block): the editor closes with the red line and the player's inventory is unchanged.
+
+
+## 2026-11-07: /invsync give and the waiting-items popup
+
+Covered headlessly (9 new GameTests, 92 in all, run twice), with one in-memory store shared by services standing for two servers: a player here with room gets it all; a full inventory keeps the rest waiting, and creative mode deletes nothing (vanilla's insert would have reported 70 handed over and deleted 66, shown with the fix undone); Deposit puts in what fits, stays open with the rest and closes when everything is in; the popup's stacks cannot be taken, shift-click moves nothing into it, and the player's own inventory works (pick up, drop outside); Cancel and Esc put it off (in the store), a switch keeps that, a join clears it and asks again; a logout with the popup open is not a Cancel; a player on another server is handed it there, once (the same rows again hand over nothing); an offline player's waits; the arrival hands over after the restore and tells a join from a switch; totems and more than 100 stacks are refused. Four of these were checked with their rule broken and fail there. Not covered headlessly: the poll every `give.pollSeconds` over the server's player list (test players are not in it; `check` is called directly), the command's argument parsing, MySQL, and the real client.
+
+- [ ] Start every server with the new jar: the log has "tables ready" with no error, and `bsp_is_gives` exists in the database.
+- [ ] `/invsync give <you> diamond 64` on the server you are on: 64 diamonds, "You received 64 Diamond from <you>", and the reply "Gave 64 Diamond to <you>".
+- [ ] From the console of another server: `invsync give <you> golden_apple 3`. The reply says "on the way to <your server>"; within 5 seconds you receive them, "from Server".
+- [ ] Fill your inventory, then `/invsync give <you> emerald 128`: the popup opens with two stacks; the info paper says 2 free slots are needed. Drop items from your own inventory in the popup (Q or drag out), watch the paper count down, click Deposit: what fits goes in; clear more and Deposit again: it closes.
+- [ ] With items waiting, click Cancel (or Esc): the gold line says you will be asked again at your next login. Switch servers with BSP-Teleport: not asked. Log out and back in: asked again.
+- [ ] `/invsync give <offline player> bread 5`: "waiting for their next login"; when they join any server, they get it after their inventory has arrived.
+- [ ] In creative mode with a full inventory, give something: nothing disappears; the popup opens.
+- [ ] `/invsync give <you> bsp_core:shatter_totem`: refused.
+- [ ] With items waiting and the popup cancelled, run `/invsync reload`: you are not asked again within 5 seconds.
+
+After the audit (6 more GameTests, 98 in all, run twice), against a store made to fail or answer late: a failed removal leaves that stack waiting, hands over the rest and the next check delivers it; a player who logs out while the store answers gets nothing put into the saved copy and the stack waits again; a fresh service (as after `/invsync reload`) reads a Cancel before asking; a give stored only in part reports what to give again; a failed read of the Cancel at a switch is read again before anything is asked; closing during a Deposit decides the Cancel on what is left. All six were checked with their fix undone and fail there.
+

@@ -139,6 +139,9 @@ public class AutosaveTests {
         @Override public CompletableFuture<Optional<byte[]>> extra(String kind, UUID key) { return never(); }
         @Override public CompletableFuture<Void> putExtra(String kind, UUID key, byte[] data) { return never(); }
         @Override public CompletableFuture<Boolean> deleteExtra(String kind, UUID key) { return never(); }
+        @Override public CompletableFuture<com.mrgregles.bsp_inventorysync.storage.Give> addGive(UUID player, byte[] item, String by) { return never(); }
+        @Override public CompletableFuture<List<com.mrgregles.bsp_inventorysync.storage.Give>> gives(java.util.Collection<UUID> players) { return never(); }
+        @Override public CompletableFuture<Boolean> takeGive(long id) { return never(); }
         @Override public CompletableFuture<Boolean> ping() { return never(); }
         @Override public void close() {}
     }

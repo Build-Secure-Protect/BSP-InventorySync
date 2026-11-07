@@ -15,6 +15,7 @@ import net.minecraft.commands.arguments.GameProfileArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -39,16 +40,21 @@ public final class InvSyncCommands {
 
     @SubscribeEvent
     public static void onRegister(RegisterCommandsEvent event) {
-        register(event.getDispatcher());
+        register(event.getDispatcher(), event.getBuildContext());
     }
 
-    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+    public static void register(CommandDispatcher<CommandSourceStack> dispatcher, net.minecraft.commands.CommandBuildContext context) {
         dispatcher.register(Commands.literal("invsync")
                 .requires(src -> src.hasPermission(2))
                 .then(Commands.literal("status").executes(ctx -> withService(ctx, AdminActions::status)))
                 .then(Commands.literal("edit").requires(src -> src.hasPermission(3)).then(Commands.argument("player", GameProfileArgument.gameProfile())
                         .executes(ctx -> edit(ctx, null))
                         .then(Commands.argument("search", StringArgumentType.greedyString()).executes(ctx -> edit(ctx, StringArgumentType.getString(ctx, "search"))))))
+                .then(Commands.literal("give").then(Commands.argument("player", GameProfileArgument.gameProfile())
+                        .then(Commands.argument("item", net.minecraft.commands.arguments.item.ItemArgument.item(context))
+                                .executes(ctx -> give(ctx, 1))
+                                .then(Commands.argument("count", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1))
+                                        .executes(ctx -> give(ctx, com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "count")))))))
                 .then(Commands.literal("reload").executes(InvSyncCommands::reload))
                 .then(Commands.literal("save").then(Commands.argument("player", GameProfileArgument.gameProfile())
                         .executes(ctx -> withOnlinePlayer(ctx, AdminActions::save))))
@@ -118,6 +124,54 @@ public final class InvSyncCommands {
             }
             return action.apply(s, player);
         });
+    }
+
+    /**
+     * {@code /invsync give <player> <item> [count]} (D23): on any server and from the console. The item as vanilla
+     * {@code /give} takes it; at most 100 stacks' worth; Shatter Totems and items no snapshot carries are refused.
+     * Where it went comes back as one line per player when the store has the rows.
+     */
+    private static int give(CommandContext<CommandSourceStack> ctx, int count) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        Collection<GameProfile> profiles = GameProfileArgument.getGameProfiles(ctx, "player");
+        ItemStack item = net.minecraft.commands.arguments.item.ItemArgument.getItem(ctx, "item").createItemStack(1, false);
+        String itemName = item.getHoverName().getString();
+        String refused = com.mrgregles.bsp_inventorysync.give.Gifts.refusal(item, count);
+        if (refused != null) {
+            reply(source, List.of(refused), false);
+            return 0;
+        }
+        String by = source.getTextName();
+        com.mrgregles.bsp_inventorysync.give.GiveService service = com.mrgregles.bsp_inventorysync.give.GiveService.get(source.getServer());
+        for (GameProfile profile : profiles) {
+            CompletableFuture<List<String>> line = service.give(profile.getId(), profile.getName(), item, count, by).thenApply(r -> {
+                String what = count + " " + itemName;
+                String text;
+                if (r.waiting() == 0 && r.failed() == 0) {
+                    text = "Gave " + what + " to " + profile.getName() + ".";
+                } else {
+                    List<String> parts = new java.util.ArrayList<>();
+                    if (r.handed() > 0) {
+                        parts.add(r.handed() + " went straight in");
+                    }
+                    if (r.waiting() > 0) {
+                        parts.add(r.waiting() + " " + (r.waiting() == 1 ? "is " : "are ") + r.where());
+                    }
+                    if (r.failed() > 0) {
+                        parts.add(r.failed() + " could not be stored (the database did not answer): give " + (r.failed() == 1 ? "it" : "those") + " again");
+                    }
+                    text = what + " for " + profile.getName() + ": " + String.join("; ", parts) + ".";
+                }
+                if (r.failed() > 0) {
+                    BSPInventorySync.LOGGER.warn("BSP-InventorySync: {} gave {} to {}: {} handed over, {} waiting, {} NOT stored", by, what, profile.getName(), r.handed(), r.waiting(), r.failed());
+                } else {
+                    BSPInventorySync.LOGGER.info("BSP-InventorySync: {} gave {} to {}: {} handed over, {} {}", by, what, profile.getName(), r.handed(), r.waiting(), r.waiting() == 0 ? "waiting" : r.where());
+                }
+                return List.of(text);
+            });
+            replyLater(source, line);
+        }
+        return profiles.size();
     }
 
     /** {@code /invsync edit <player> [word]}: opens the editor for a player online on this server, or on the newest snapshot of one who is offline (operators of level 3). */

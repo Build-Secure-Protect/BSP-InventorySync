@@ -45,7 +45,7 @@ public final class JdbcStore implements SyncStore {
 
     private final Settings settings;
     private final String url;
-    private final String players, snapshots, extra;
+    private final String players, snapshots, extra, gives;
     private final ExecutorService worker;
     private static final long FIRST_BACKOFF_MS = 1_000, MAX_BACKOFF_MS = 15_000;
 
@@ -62,6 +62,7 @@ public final class JdbcStore implements SyncStore {
         this.players = settings.prefix() + "players";
         this.snapshots = settings.prefix() + "snapshots";
         this.extra = settings.prefix() + "extra";
+        this.gives = settings.prefix() + "gives";
         this.worker = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "bsp-inventorysync-mysql");
             t.setDaemon(true);
@@ -91,6 +92,9 @@ public final class JdbcStore implements SyncStore {
                 st.executeUpdate("CREATE TABLE IF NOT EXISTS " + extra + " ("
                         + "kind VARCHAR(32) NOT NULL, id CHAR(36) NOT NULL, updated_at BIGINT NOT NULL, data MEDIUMBLOB NOT NULL, "
                         + "PRIMARY KEY (kind, id))");
+                st.executeUpdate("CREATE TABLE IF NOT EXISTS " + gives + " ("
+                        + "id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, player CHAR(36) NOT NULL, item MEDIUMBLOB NOT NULL, "
+                        + "given_by VARCHAR(64) NOT NULL, created_at BIGINT NOT NULL, INDEX (player))");
                 try (ResultSet rs = st.executeQuery("SELECT @@max_allowed_packet")) {
                     if (rs.next() && rs.getLong(1) < 16L * 1024 * 1024) {
                         BSPInventorySync.LOGGER.warn("BSP-InventorySync: the database's max_allowed_packet is {} KB; a player with a very full inventory can exceed it and fail to save. 16 MB or more is safe.", rs.getLong(1) / 1024);
@@ -425,6 +429,62 @@ public final class JdbcStore implements SyncStore {
             try (PreparedStatement ps = conn().prepareStatement("DELETE FROM " + extra + " WHERE kind = ? AND id = ?")) {
                 ps.setString(1, kind);
                 ps.setString(2, key.toString());
+                return ps.executeUpdate() > 0;
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Give> addGive(UUID player, byte[] item, String by) {
+        return run(() -> {
+            long now = System.currentTimeMillis();
+            String name = by.length() > 64 ? by.substring(0, 64) : by;
+            try (PreparedStatement ps = conn().prepareStatement("INSERT INTO " + gives + " (player, item, given_by, created_at) VALUES (?, ?, ?, ?)",
+                    Statement.RETURN_GENERATED_KEYS)) {
+                ps.setString(1, player.toString());
+                ps.setBytes(2, item);
+                ps.setString(3, name);
+                ps.setLong(4, now);
+                ps.executeUpdate();
+                try (ResultSet keys = ps.getGeneratedKeys()) {
+                    if (!keys.next()) {
+                        throw new SQLException("no id for the new give");
+                    }
+                    return new Give(keys.getLong(1), player, item, name, now);
+                }
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<List<Give>> gives(java.util.Collection<UUID> players) {
+        if (players.isEmpty()) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+        List<UUID> ids = List.copyOf(players);
+        return run(() -> {
+            String marks = String.join(", ", java.util.Collections.nCopies(ids.size(), "?"));
+            try (PreparedStatement ps = conn().prepareStatement("SELECT id, player, item, given_by, created_at FROM " + gives
+                    + " WHERE player IN (" + marks + ") ORDER BY id")) {
+                for (int i = 0; i < ids.size(); i++) {
+                    ps.setString(i + 1, ids.get(i).toString());
+                }
+                List<Give> out = new ArrayList<>();
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        out.add(new Give(rs.getLong(1), UUID.fromString(rs.getString(2)), rs.getBytes(3), rs.getString(4), rs.getLong(5)));
+                    }
+                }
+                return out;
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Boolean> takeGive(long id) {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("DELETE FROM " + gives + " WHERE id = ?")) {
+                ps.setLong(1, id);
                 return ps.executeUpdate() > 0;
             }
         });

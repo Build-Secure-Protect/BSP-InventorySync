@@ -28,6 +28,8 @@ public final class MemoryStore implements SyncStore {
     private final Map<UUID, PlayerRows> players = new ConcurrentHashMap<>();
     private final Map<UUID, Presence> presence = new ConcurrentHashMap<>();
     private final Map<ExtraKey, byte[]> extras = new ConcurrentHashMap<>();
+    private final Map<Long, Give> gives = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong nextGive = new java.util.concurrent.atomic.AtomicLong(1);
     private final LongSupplier clock;
     private volatile boolean closed;
 
@@ -203,6 +205,23 @@ public final class MemoryStore implements SyncStore {
     @Override
     public CompletableFuture<Boolean> deleteExtra(String kind, UUID key) {
         return done(extras.remove(new ExtraKey(kind, key)) != null);
+    }
+
+    @Override
+    public CompletableFuture<Give> addGive(UUID player, byte[] item, String by) {
+        Give g = new Give(nextGive.getAndIncrement(), player, item.clone(), by, clock.getAsLong());
+        gives.put(g.id(), g);
+        return done(g);
+    }
+
+    @Override
+    public CompletableFuture<List<Give>> gives(java.util.Collection<UUID> players) {
+        return done(gives.values().stream().filter(g -> players.contains(g.player())).sorted(Comparator.comparingLong(Give::id)).toList());
+    }
+
+    @Override
+    public CompletableFuture<Boolean> takeGive(long id) {
+        return done(gives.remove(id) != null);
     }
 
     @Override

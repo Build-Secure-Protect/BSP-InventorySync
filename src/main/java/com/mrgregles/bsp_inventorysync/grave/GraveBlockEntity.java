@@ -1,7 +1,9 @@
 package com.mrgregles.bsp_inventorysync.grave;
 
+import com.mojang.authlib.GameProfile;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtUtils;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
@@ -14,10 +16,12 @@ import java.util.UUID;
 /**
  * What a grave block knows about its grave: the grave's id (the contents stay in the grave store, never in the
  * world), its owner, and when it becomes public. Sent to the clients for the floating text, with the server's
- * clock, so the countdown is right even when a player's own clock is off.
+ * clock, so the countdown is right even when a player's own clock is off; and the owner's game profile as it was at
+ * the death, with its skin, for the head in front of the stone (D26 2a, 5a).
  */
 public final class GraveBlockEntity extends BlockEntity {
-    private static final String GRAVE = "Grave", OWNER = "Owner", OWNER_NAME = "OwnerName", DIED_AT = "DiedAt", PUBLIC_AT = "PublicAt", SERVER_NOW = "ServerNow";
+    private static final String GRAVE = "Grave", OWNER = "Owner", OWNER_NAME = "OwnerName", DIED_AT = "DiedAt", PUBLIC_AT = "PublicAt", SERVER_NOW = "ServerNow",
+            PROFILE = "OwnerProfile", TEXTURES = "textures";
 
     @Nullable private UUID graveId;
     private UUID owner = new UUID(0, 0);
@@ -27,6 +31,10 @@ public final class GraveBlockEntity extends BlockEntity {
     private boolean networked;
     /** Client side: the server's clock minus this client's, taken when the data arrived. */
     private long clockOffset;
+    /** The owner's profile at the death, skin and all; null for a grave from before 0.6.0 (or one put up without it). */
+    @Nullable private GameProfile profile;
+    /** Its stand-in when there is none: the owner's id and name, so the default skin for that id. */
+    @Nullable private GameProfile plain;
 
     public GraveBlockEntity(BlockPos pos, BlockState state) {
         super(GraveRegistry.GRAVE_ENTITY.get(), pos, state);
@@ -36,7 +44,14 @@ public final class GraveBlockEntity extends BlockEntity {
         setGrave(graveId, owner, ownerName, diedAt, publicAt, false);
     }
 
+    /** As below with no profile: the head shows the default skin. It replaces any profile the block had. */
     public void setGrave(UUID graveId, UUID owner, String ownerName, long diedAt, long publicAt, boolean networked) {
+        setGrave(graveId, owner, ownerName, diedAt, publicAt, networked, null);
+    }
+
+    public void setGrave(UUID graveId, UUID owner, String ownerName, long diedAt, long publicAt, boolean networked, @Nullable GameProfile profile) {
+        this.profile = profile == null ? null : copy(profile);
+        this.plain = null;
         this.networked = networked;
         this.graveId = graveId;
         this.owner = owner;
@@ -74,10 +89,42 @@ public final class GraveBlockEntity extends BlockEntity {
         return networked;
     }
 
-    /** The floating text sits above the block: it is drawn whenever that space is in view, not only the headstone. */
+    /** The owner's profile as it was at the death (with the skin), or null when the grave has none. */
+    @Nullable
+    public GameProfile profile() {
+        return profile;
+    }
+
+    /** The profile the head is drawn with: the saved one, else the owner's id and name (the default skin for that id). */
+    public GameProfile headProfile() {
+        if (profile != null) {
+            return profile;
+        }
+        String name = ownerName.isEmpty() ? "?" : ownerName;
+        if (plain == null || !plain.getId().equals(owner) || !plain.getName().equals(name)) {
+            plain = new GameProfile(owner, name);
+        }
+        return plain;
+    }
+
+    /**
+     * A copy of a profile with only its skin (the {@code textures} property, signature and all): the player's own
+     * profile object stays theirs, and nothing else a proxy may have put on it goes into the world or to the clients.
+     */
+    private static GameProfile copy(GameProfile from) {
+        GameProfile to = new GameProfile(from.getId(), from.getName());
+        to.getProperties().putAll(TEXTURES, from.getProperties().get(TEXTURES));
+        return to;
+    }
+
+    /**
+     * The floating text sits above the block (a long name is over two blocks wide) and the owner's head reaches into
+     * the ground below: drawn whenever any of that is in view, not only the headstone.
+     */
     @Override
     public net.minecraft.world.phys.AABB getRenderBoundingBox() {
-        return new net.minecraft.world.phys.AABB(worldPosition, worldPosition.offset(1, 2, 1));
+        return new net.minecraft.world.phys.AABB(worldPosition.getX() - 1, worldPosition.getY() - 0.25, worldPosition.getZ() - 1,
+                worldPosition.getX() + 2, worldPosition.getY() + 2.5, worldPosition.getZ() + 2);
     }
 
     /** The server's time now, as best this side knows it (the client corrects its own clock by the offset it was sent). */
@@ -100,6 +147,9 @@ public final class GraveBlockEntity extends BlockEntity {
         tag.putLong(DIED_AT, diedAt);
         tag.putLong(PUBLIC_AT, publicAt);
         tag.putBoolean("Networked", networked);
+        if (profile != null) {
+            tag.put(PROFILE, NbtUtils.writeGameProfile(new CompoundTag(), profile));
+        }
     }
 
     @Override
@@ -111,12 +161,15 @@ public final class GraveBlockEntity extends BlockEntity {
         diedAt = tag.getLong(DIED_AT);
         publicAt = tag.getLong(PUBLIC_AT);
         networked = tag.getBoolean("Networked");
+        GameProfile read = tag.contains(PROFILE, net.minecraft.nbt.Tag.TAG_COMPOUND) ? NbtUtils.readGameProfile(tag.getCompound(PROFILE)) : null;
+        profile = read == null ? null : copy(read);
+        plain = null;
         if (tag.contains(SERVER_NOW)) {
             clockOffset = tag.getLong(SERVER_NOW) - System.currentTimeMillis();
         }
     }
 
-    /** What the clients get: the grave's owner and times (never its contents) and the server's clock. */
+    /** What the clients get: the grave's owner, times and profile (never its contents) and the server's clock. */
     @Override
     public CompoundTag getUpdateTag() {
         CompoundTag tag = super.getUpdateTag();

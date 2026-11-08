@@ -16,7 +16,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Where a grave can stand (D25 6b). A good spot is inside the world, in a loaded chunk, free (air, grass,
  * a thin snow layer: what a block placed there would replace), dry (no water or lava in it), on top of
- * something solid, and not a spot to avoid (where BSP-Core's dropped Shatter Totem lies, so the totem can
+ * something solid, with headroom for the cap (D28: nothing to bump into in the block above, as the cap reaches 3/16
+ * into it), and not a spot to avoid (where BSP-Core's dropped Shatter Totem lies, so the totem can
  * always place itself). The search looks outward from the spot, nearest first.
  */
 public final class GraveSpot {
@@ -36,7 +37,26 @@ public final class GraveSpot {
         if (!level.isInWorldBounds(below) || !level.hasChunkAt(below)) {
             return false;
         }
+        if (!headroom(level, pos)) {
+            return false;
+        }
         return level.getBlockState(below).isFaceSturdy(level, below, Direction.UP);
+    }
+
+    /**
+     * Room above a grave at {@code pos} for its cap (D28): the block above has nothing to bump into, and nothing of
+     * its outline where the cap reaches into it ({@link GraveShape#CAP_REACH}), which also catches the blocks that let
+     * things through (scaffolding, powder snow) and a hanging lantern; air, or a torch high on a wall, leaves room.
+     * Above the world's top there is always room.
+     */
+    public static boolean headroom(ServerLevel level, BlockPos pos) {
+        BlockPos above = pos.above();
+        if (!level.isInWorldBounds(above)) {
+            return true;
+        }
+        BlockState state = level.getBlockState(above);
+        return state.getCollisionShape(level, above).isEmpty()
+                && !net.minecraft.world.phys.shapes.Shapes.joinIsNotEmpty(state.getShape(level, above), GraveShape.CAP_REACH, net.minecraft.world.phys.shapes.BooleanOp.AND);
     }
 
     /**

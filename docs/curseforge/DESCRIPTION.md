@@ -40,7 +40,7 @@ If you arrive on a server that does not have one of your items' mods, the item b
 
 ![Graves](https://raw.githubusercontent.com/Build-Secure-Protect/BSP-InventorySync/main/docs/curseforge/images/graves.png)
 
-When you die, a headstone appears where you fell, holding everything you would have dropped and your experience. It replaces Simply Graves, with what players missed there fixed.
+When you die, a headstone appears where you fell, holding everything you would have dropped and your experience. It replaces Simply Graves, with what players missed there fixed. You will know it: a block-wide headstone with a glowing golden sigil, your own head sticking out of the ground in front of it, and gold and green motes drifting up around it.
 
 - **Every death gets its own grave.** Dying on the way back never touches the first one.
 - **Right-click it** to open it: a chest screen laid out like your inventory (main rows, hotbar, armour, offhand). Click a stack to take it, or Take all: everything goes back into the slot it came from (armour is worn again). What does not fit stays in the grave until you make room; nothing is dropped or deleted.

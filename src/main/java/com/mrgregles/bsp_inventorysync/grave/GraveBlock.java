@@ -13,6 +13,8 @@ import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
@@ -22,7 +24,6 @@ import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.level.material.PushReaction;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
-import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.world.entity.player.Player;
 
@@ -34,38 +35,44 @@ import javax.annotation.Nullable;
  * away, drops nothing and has no item: it goes when its grave is emptied. Its block entity names the grave; the
  * contents live in the grave store. Opening it comes with the grave screen (GR-3).
  *
- * <p>Model (sixteenths, facing north): base 2..14 x 0..2 x 4..12; stone 3..13 x 2..13 x 6.5..9.5; cap 5..11 x 13..15
- * x 6.5..9.5. The models come from {@code tools/gen_grave_assets.py}.
+ * <p>Model (sixteenths, facing north; size B of D27): base 0..16 x 0..2 x 8..16; stone 1..15 x 2..16 x 10..14; cap
+ * 3..13 x 16..19 x 10..14; a glowing golden sigil on the stone's front and back (D26). The models come from
+ * {@code tools/gen_grave_assets.py}; the owner's head in front, leaning {@link #LEAN}, is drawn by the client's grave
+ * renderer and is solid (D26 6a): the shapes, {@link GraveShape}'s, include it, so a click on it opens the grave.
  */
 public final class GraveBlock extends Block implements EntityBlock {
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
     public static final EnumProperty<GraveKind> KIND = EnumProperty.create("kind", GraveKind.class);
+    /** Which way the owner's head leans (D27 2a): from the grave's id, set when the grave is put up. */
+    public static final EnumProperty<GraveLean> LEAN = EnumProperty.create("lean", GraveLean.class);
     public static final int LIGHT = 4;
-
-    private static final VoxelShape ALONG_X = Shapes.or(box(2, 0, 4, 14, 2, 12), box(3, 2, 6.5, 13, 13, 9.5), box(5, 13, 6.5, 11, 15, 9.5));
-    private static final VoxelShape ALONG_Z = Shapes.or(box(4, 0, 2, 12, 2, 14), box(6.5, 2, 3, 9.5, 13, 13), box(6.5, 13, 5, 9.5, 15, 11));
 
     public GraveBlock() {
         super(BlockBehaviour.Properties.of().mapColor(MapColor.STONE).sound(SoundType.STONE)
                 .strength(-1.0F, 3_600_000.0F).noLootTable().noOcclusion().forceSolidOn().pushReaction(PushReaction.BLOCK)
                 .lightLevel(s -> LIGHT).isValidSpawn((s, l, p, e) -> false));
-        registerDefaultState(stateDefinition.any().setValue(FACING, Direction.NORTH).setValue(KIND, GraveKind.STONE));
+        registerDefaultState(stateDefinition.any().setValue(FACING, Direction.NORTH).setValue(KIND, GraveKind.STONE).setValue(LEAN, GraveLean.LEFT));
     }
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING, KIND);
+        builder.add(FACING, KIND, LEAN);
     }
 
-    /** The state for a grave facing {@code facing} (any horizontal direction; up or down count as north). */
+    /** The state for a grave facing {@code facing} (any horizontal direction; up or down count as north), its head leaning left. */
     public BlockState stateFor(Direction facing, GraveKind kind) {
+        return stateFor(facing, kind, GraveLean.LEFT);
+    }
+
+    /** As above, its head leaning {@code lean}. */
+    public BlockState stateFor(Direction facing, GraveKind kind, GraveLean lean) {
         Direction f = facing.getAxis().isHorizontal() ? facing : Direction.NORTH;
-        return defaultBlockState().setValue(FACING, f).setValue(KIND, kind);
+        return defaultBlockState().setValue(FACING, f).setValue(KIND, kind).setValue(LEAN, lean);
     }
 
     @Override
     public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-        return state.getValue(FACING).getAxis() == Direction.Axis.Z ? ALONG_X : ALONG_Z;
+        return GraveShape.of(state.getValue(FACING), state.getValue(LEAN));
     }
 
     @Override
@@ -77,6 +84,20 @@ public final class GraveBlock extends Block implements EntityBlock {
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new GraveBlockEntity(pos, state);
+    }
+
+    /** The motes (D26 3a): a ticker on the client only; a server never ticks a grave. */
+    @Nullable
+    @Override
+    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
+        return level.isClientSide ? clientTicker(type) : null;
+    }
+
+    /** The client's ticker for a grave's block entity type: {@link GraveMotes#tick}; null for any other type. */
+    @Nullable
+    @SuppressWarnings("unchecked")
+    public static <T extends BlockEntity> BlockEntityTicker<T> clientTicker(BlockEntityType<T> type) {
+        return type == GraveRegistry.GRAVE_ENTITY.get() ? (BlockEntityTicker<T>) (BlockEntityTicker<GraveBlockEntity>) GraveMotes::tick : null;
     }
 
     /** Middle-click gives nothing: a grave has no item. */

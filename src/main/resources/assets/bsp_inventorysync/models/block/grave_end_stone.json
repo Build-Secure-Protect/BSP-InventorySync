@@ -1,106 +1,168 @@
 {
   "parent": "minecraft:block/block",
+  "render_type": "minecraft:cutout",
   "ambientocclusion": false,
   "textures": {
     "particle": "minecraft:block/end_stone",
     "stone": "minecraft:block/end_stone",
-    "base": "minecraft:block/end_stone_bricks"
+    "base": "minecraft:block/end_stone_bricks",
+    "sigil": "bsp_inventorysync:block/grave_sigil"
   },
   "elements": [
     {
       "from": [
-        2,
         0,
-        4
+        0,
+        8
       ],
       "to": [
-        14,
+        16,
         2,
-        12
+        16
       ],
       "faces": {
-        "north": {
-          "texture": "#base"
+        "west": {
+          "texture": "#base",
+          "cullface": "west"
         },
         "east": {
-          "texture": "#base"
-        },
-        "south": {
-          "texture": "#base"
-        },
-        "west": {
-          "texture": "#base"
-        },
-        "up": {
-          "texture": "#base"
+          "texture": "#base",
+          "cullface": "east"
         },
         "down": {
           "texture": "#base",
           "cullface": "down"
+        },
+        "up": {
+          "texture": "#base"
+        },
+        "north": {
+          "texture": "#base"
+        },
+        "south": {
+          "texture": "#base",
+          "cullface": "south"
+        }
+      }
+    },
+    {
+      "from": [
+        1,
+        2,
+        10
+      ],
+      "to": [
+        15,
+        16,
+        14
+      ],
+      "faces": {
+        "west": {
+          "texture": "#stone"
+        },
+        "east": {
+          "texture": "#stone"
+        },
+        "down": {
+          "texture": "#stone"
+        },
+        "up": {
+          "texture": "#stone",
+          "cullface": "up"
+        },
+        "north": {
+          "texture": "#stone"
+        },
+        "south": {
+          "texture": "#stone"
         }
       }
     },
     {
       "from": [
         3,
-        2,
-        6.5
+        16,
+        10
       ],
       "to": [
         13,
-        13,
-        9.5
+        19,
+        14
       ],
       "faces": {
-        "north": {
+        "west": {
           "texture": "#stone"
         },
         "east": {
           "texture": "#stone"
         },
-        "south": {
-          "texture": "#stone"
-        },
-        "west": {
+        "down": {
           "texture": "#stone"
         },
         "up": {
           "texture": "#stone"
         },
-        "down": {
+        "north": {
+          "texture": "#stone"
+        },
+        "south": {
           "texture": "#stone"
         }
       }
     },
     {
       "from": [
-        5,
-        13,
-        6.5
+        1,
+        2,
+        9.9
       ],
       "to": [
-        11,
         15,
-        9.5
+        16,
+        9.9
       ],
+      "shade": false,
+      "forge_data": {
+        "block_light": 15,
+        "sky_light": 15
+      },
       "faces": {
         "north": {
-          "texture": "#stone"
-        },
-        "east": {
-          "texture": "#stone"
-        },
+          "texture": "#sigil",
+          "uv": [
+            1,
+            1,
+            15,
+            15
+          ]
+        }
+      }
+    },
+    {
+      "from": [
+        1,
+        2,
+        14.1
+      ],
+      "to": [
+        15,
+        16,
+        14.1
+      ],
+      "shade": false,
+      "forge_data": {
+        "block_light": 15,
+        "sky_light": 15
+      },
+      "faces": {
         "south": {
-          "texture": "#stone"
-        },
-        "west": {
-          "texture": "#stone"
-        },
-        "up": {
-          "texture": "#stone"
-        },
-        "down": {
-          "texture": "#stone"
+          "texture": "#sigil",
+          "uv": [
+            1,
+            1,
+            15,
+            15
+          ]
         }
       }
     }

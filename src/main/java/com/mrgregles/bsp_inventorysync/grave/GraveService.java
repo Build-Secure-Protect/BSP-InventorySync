@@ -371,7 +371,7 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
         BlockPos where = spot.orElse(deathPos);
         GraveContents contents = new GraveContents(entries, extras(entries.stream().map(GraveContents.Entry::stack).toList(), level, name));
         UUID graveId = UUID.randomUUID();
-        boolean placed = spot.isPresent() && placeBlock(graveLevel, where, player.getDirection(), graveId, id, name, now, now + privateMs, sync.get() != null);
+        boolean placed = spot.isPresent() && placeBlock(graveLevel, where, player.getDirection(), graveId, id, name, now, now + privateMs, sync.get() != null, player.getGameProfile());
         Grave grave = new Grave(graveId, id, name, serverId(), graveLevel.dimension().location().toString(),
                 where.getX(), where.getY(), where.getZ(), placed, now, now, 0, xp, entries.size(), 0, contents.encode());
 
@@ -401,15 +401,25 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
         return placeBlock(level, pos, facing, graveId, owner, ownerName, diedAt, publicAt, false);
     }
 
-    /** As above; {@code networked}: its grave goes to the network database. */
+    /** As above; {@code networked}: its grave goes to the network database. No profile: the head shows the default skin. */
     public static boolean placeBlock(ServerLevel level, BlockPos pos, net.minecraft.core.Direction facing, UUID graveId, UUID owner, String ownerName,
                                      long diedAt, long publicAt, boolean networked) {
-        net.minecraft.world.level.block.state.BlockState state = GraveRegistry.GRAVE.get().stateFor(facing, GraveKind.forPlace(level, pos));
+        return placeBlock(level, pos, facing, graveId, owner, ownerName, diedAt, publicAt, networked, null);
+    }
+
+    /**
+     * As above; {@code profile}: the owner's game profile with its skin (the {@code textures} property), for the head
+     * in front of the stone (D26 2a, 5a); null draws the default skin for the owner's id. The head leans the way the
+     * grave's id says ({@link GraveLean#of}).
+     */
+    public static boolean placeBlock(ServerLevel level, BlockPos pos, net.minecraft.core.Direction facing, UUID graveId, UUID owner, String ownerName,
+                                     long diedAt, long publicAt, boolean networked, @Nullable com.mojang.authlib.GameProfile profile) {
+        net.minecraft.world.level.block.state.BlockState state = GraveRegistry.GRAVE.get().stateFor(facing, GraveKind.forPlace(level, pos), GraveLean.of(graveId));
         if (!level.setBlock(pos, state, net.minecraft.world.level.block.Block.UPDATE_ALL)) {
             return false;
         }
         if (level.getBlockEntity(pos) instanceof GraveBlockEntity be) {
-            be.setGrave(graveId, owner, ownerName, diedAt, publicAt, networked);
+            be.setGrave(graveId, owner, ownerName, diedAt, publicAt, networked, profile);
             return true;
         }
         level.removeBlock(pos, false);

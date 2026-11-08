@@ -4,6 +4,21 @@ All notable changes to BSP-InventorySync are recorded here. The format follows [
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-08
+
+### Changed
+- **The headstone is bigger**: a block wide and a little over a block tall (base 16 by 2 by 8, stone 14 by 14 and 4 deep, cap to 19/16), standing across the back half of its block. What you bump into and click follows the stone, its base and the head in front. The floating text sits higher to match. A grave now needs headroom for its cap: a spot whose block above has something to bump into or reaches where the cap goes (a space one block high, a slab, scaffolding, powder snow) is skipped for the nearest spot with room, so a death in a low tunnel can leave its grave just outside it or on the surface above (the death message gives the place, as before).
+- A glowing golden sigil on the stone's front and back, drawn full-bright (it shows at night and underground); the block's own light stays 4. Model and the sigil texture (`grave_sigil.png`) come from `tools/gen_grave_assets.py`.
+
+### Added
+- **The owner's head** out of the ground in front of the stone, up to the chin, with their own skin as it was at the death (Steve or Alex until it loads), leaning 18 degrees to the left or right, chosen from the grave's id so a row of graves differs. It is solid and part of the grave: a right-click on it opens the grave. A grave keeps only the skin from the owner's profile. Graves from 0.5.0 lean left and show the default skin for their owner.
+- Gold and neon green motes drifting up around a grave, about 3 a second, for each player within 16 blocks, made on that player's client so their Particles setting applies; the server sends nothing.
+- `tools/gen_grave_preview.py` (a render of the block from its own models) and the mock-ups of D26 and D27 (`tools/gen_grave_detail_concepts.py`).
+
+### Upgrading
+- Every client needs this jar (the exact version rule): ship it in the pack at the same time as on the servers.
+- Graves put up by 0.5.0 take the new look where they stand. One already standing in a space one block high shows its cap in the ceiling block (the headroom rule only chooses where new graves go); it opens and empties as before.
+
 ## [0.5.0] - 2026-11-07
 
 ### Added

@@ -2,11 +2,14 @@
 """Draws the images of the CurseForge description (docs/curseforge/DESCRIPTION.md) as SVG in the BSP "Holo HUD" look and
 renders them to PNG with macOS Quick Look (qlmanage), cropped with sips. Generated files are never edited by hand.
 
-  python3 tools/gen_curseforge_images.py            # writes docs/curseforge/images/*.png (and keeps the .svg next to them)
+  python3 tools/gen_curseforge_images.py            # writes docs/curseforge/images/*.png (--keep-svg keeps the .svg next to them)
+  python3 tools/gen_curseforge_images.py graves     # only the images named
 """
 import subprocess
 import sys
 from pathlib import Path
+
+from gen_grave_assets import BASE, CAP, HEAD, SIGIL, STONE  # the grave's own numbers, so the picture follows the model
 
 OUT = Path(__file__).resolve().parent.parent / "docs/curseforge/images"
 SCALE = 2
@@ -281,16 +284,36 @@ def graves():
     s = Svg(1200, 450)
     s.text(40, 48, "Graves that keep everything", 30, TEXT, "bold")
     s.text(40, 78, "Every death gets its own grave. Nothing is dropped, nothing is deleted, and it waits on every server of the network.", 16, MUTED)
-    # a headstone, as the block's model draws it (sixteenths of a block, scaled)
+    # the headstone from in front, as the block's model and renderer draw it (0.6.0, size B): sixteenths of a block, scaled
     k = 9
-    gx, gy = 90, 330
-    s.rect(gx + 2 * k, gy - 2 * k, 12 * k, 2 * k, "#8E8E8E", None, r=2)
-    s.rect(gx + 3 * k, gy - 13 * k, 10 * k, 11 * k, "#9C9C9C", None, r=2)
-    s.rect(gx + 5 * k, gy - 15 * k, 6 * k, 2 * k, "#A8A8A8", None, r=2)
-    s.rect(gx - 4, gy - 15 * k - 62, 16 * k + 8, 46, "#00000088", None, r=3)
-    s.text(gx + 8 * k, gy - 15 * k - 42, "Steve", 15, TEXT, "normal", "middle")
-    s.text(gx + 8 * k, gy - 15 * k - 24, "Right-click to open", 13, GOLD, "normal", "middle")
-    s.text(gx + 8 * k, gy + 34, "nothing breaks it", 13, MUTED, "normal", "middle")
+    gx, gy = 90, 340
+    for (f, t), colour in ((BASE, "#8E8E8E"), (STONE, "#9C9C9C"), (CAP, "#A8A8A8")):  # seen from in front: x across, y up
+        s.rect(gx + f[0] * k, gy - t[1] * k, (t[0] - f[0]) * k, (t[1] - f[1]) * k, colour, None, r=2)
+    (sx1, sy1, _), (sx2, sy2, _) = STONE
+    ox, oy = sx1 + (sx2 - sx1 - len(SIGIL[0])) // 2, (sy2 - sy1 - len(SIGIL)) // 2  # centred as the sigil texture centres it
+    for j, row in enumerate(SIGIL):                                               # the sigil on the stone's face, full-bright gold
+        for i, ch in enumerate(row):
+            if ch == "#":
+                s.rect(gx + (ox + i) * k, gy - sy2 * k + (oy + j) * k, k, k, GOLD, None, r=0)
+    # the owner's head, its middle on the ground, sunk and leaning (left, as seen from in front)
+    face = ["HHHHHHHH", "HHHHHHHH", "HSSSSSSH", "SSSSSSSS", "SWESSEWS", "SSSNNSSS", "SSMMMMSS", "SSSSSSSS"]
+    colours = {"H": "#3B2A1E", "S": "#B78466", "W": "#FFFFFF", "E": "#4A3C8C", "N": "#8A5A44", "M": "#6B3E2E"}
+    hx, hy, half = gx + HEAD["x"] * k, gy, HEAD["size"] // 2
+    s.parts.append(f'<g transform="rotate({-HEAD["degrees"]} {hx} {hy})">')
+    for j, row in enumerate(face):
+        for i, ch in enumerate(row):
+            s.rect(hx + (i - half) * k, hy - (HEAD["size"] - HEAD["sink"]) * k + j * k, k, k, colours[ch], None, r=0)
+    s.parts.append('</g>')
+    s.rect(gx - 30, gy, 16 * k + 60, 4, "#5E9A3A", None, r=0)                    # the ground hides the sunk chin
+    s.rect(gx - 30, gy + 4, 16 * k + 60, 34, "#5B3F2A", None, r=0)
+    for mx, my, c in ((gx - 6, gy - 60, GOLD), (gx + 16 * k + 4, gy - 110, "#39FF14"), (gx + 22, gy - 150, "#39FF14"),
+                      (gx + 16 * k - 10, gy - 30, GOLD), (gx + 4, gy - 120, GOLD), (gx + 16 * k + 12, gy - 175, GOLD)):
+        s.rect(mx, my, 5, 5, c, None, r=1)                                         # gold and neon green motes
+    top = CAP[1][1]
+    s.rect(gx - 4, gy - top * k - 62, 16 * k + 8, 46, "#00000088", None, r=3)
+    s.text(gx + 8 * k, gy - top * k - 42, "Steve", 15, TEXT, "normal", "middle")
+    s.text(gx + 8 * k, gy - top * k - 24, "Right-click to open", 13, GOLD, "normal", "middle")
+    s.text(gx + 8 * k, gy + 60, "nothing breaks it", 13, MUTED, "normal", "middle")
     panels = [
         (300, "Dying", GOLD, ["A headstone where you fell, with", "everything and your experience.", "Lava, water, a wall: the nearest", "dry spot. The void: kept safe.", "", "PvP: no grave, the killer loots.", "Your totem stays BSP-Core's."]),
         (600, "Opening", ACCENT, ["Laid out like your inventory.", "Take all: back where it was,", "armour worn again.", "What does not fit stays.", "", "Only you for the first hour,", "then anyone."]),
@@ -304,8 +327,10 @@ def graves():
 
 
 if __name__ == "__main__":
+    names = [a for a in sys.argv[1:] if not a.startswith("--")]
     for fn in (banner, switch, travels, status, rollback, totem, missing, graves):
-        fn()
+        if not names or fn.__name__ in names:
+            fn()
     if "--keep-svg" not in sys.argv:
         for f in OUT.glob("*.svg"):
             f.unlink()

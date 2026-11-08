@@ -1,3 +1,20 @@
+# BSP-InventorySync 0.6.0: graves you can spot
+
+Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. Needed on the client in exactly the server's version: update the modpack together with the servers.
+
+## Changed
+
+- The headstone is bigger: a block wide and a little over a block tall, with a glowing golden sigil on its front and back that shows at night and underground.
+- A grave needs a little room above it now: dying in a tunnel one block high puts the grave at the nearest spot with room, just outside the tunnel or on the surface above. The death message tells you where.
+- Graves from 0.5.0 get the new look where they stand.
+
+## Added
+
+- The owner's own head, with their skin, out of the ground in front of the stone, leaning a little to the left or right. It is part of the grave: right-click it to open the grave.
+- Gold and neon green motes drift up around a grave for players within 16 blocks; your Particles setting applies.
+
+---
+
 # BSP-InventorySync 0.5.0: graves
 
 Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. **Now needed on the client too**, in exactly the server's version: put the same jar in the modpack. Replaces Simply Graves: remove it from the servers and the pack (and collect its graves first).

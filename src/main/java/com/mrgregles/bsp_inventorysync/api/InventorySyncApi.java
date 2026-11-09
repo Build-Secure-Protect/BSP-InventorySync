@@ -115,6 +115,62 @@ public final class InventorySyncApi {
         return p == null ? CompletableFuture.completedFuture(0L) : p.saveNow(player);
     }
 
+    /**
+     * A player's graves that still hold something, newest death first (API_VERSION 2, D30): on every server of the
+     * network when the sync is on, else this server's. Callable from any thread; the future completes on the server
+     * thread (never {@code join()} it there), and fails when graves are off here or the store fails.
+     */
+    public static CompletableFuture<java.util.List<GraveInfo>> graves(UUID player) {
+        com.mrgregles.bsp_inventorysync.grave.GraveService s = com.mrgregles.bsp_inventorysync.grave.GraveService.active();
+        if (s == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("graves are off on this server"));
+        }
+        return onServerThread(() -> com.mrgregles.bsp_inventorysync.grave.GraveActions.infos(s, player, System.currentTimeMillis()));
+    }
+
+    /**
+     * Returns a grave to its owner (API_VERSION 2, D30), as {@code /invsync grave return} does: into their inventory now
+     * when they are on this server (slots as they were, armour worn, backpack and dank contents, the XP; what does not
+     * fit stays in the grave, recoverable with {@code /grave}), at their next login on any server when they are offline,
+     * refused when they are on another server ({@code ONLINE}, return it there). Only a grave that could not be placed,
+     * one put away, or one whose headstone is gone; a standing headstone is opened where it stands. {@code id} is the
+     * grave's id or its first eight characters; {@code by} names who did it (log line). Callable from any thread; the
+     * future completes on the server thread (never {@code join()} it there). Failures are answered as {@code FAILED}.
+     */
+    public static CompletableFuture<GraveReturn> returnGrave(UUID player, String id, String by) {
+        com.mrgregles.bsp_inventorysync.grave.GraveService s = com.mrgregles.bsp_inventorysync.grave.GraveService.active();
+        if (s == null) {
+            return CompletableFuture.completedFuture(new GraveReturn(GraveReturn.Outcome.FAILED, "Graves are off on this server.", 0, 0, 0, ""));
+        }
+        String who = by == null || by.isBlank() ? "staff" : "panel: " + by.trim();
+        return onServerThread(() -> com.mrgregles.bsp_inventorysync.grave.GraveActions.returnGrave(s, player, s.nameOf(player), id == null ? "" : id, who))
+                .exceptionally(t -> new GraveReturn(GraveReturn.Outcome.FAILED, "Could not return the grave: " + (t.getCause() != null ? t.getCause().getMessage() : t.getMessage()) + ".",
+                        0, 0, 0, s.serverIdNow()));
+    }
+
+    /** Runs the step on the server thread and hands its answer over there. */
+    private static <T> CompletableFuture<T> onServerThread(java.util.function.Supplier<CompletableFuture<T>> step) {
+        net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("no server running"));
+        }
+        CompletableFuture<T> out = new CompletableFuture<>();
+        server.execute(() -> {
+            try {
+                step.get().whenComplete((v, e) -> server.execute(() -> {
+                    if (e != null) {
+                        out.completeExceptionally(e);
+                    } else {
+                        out.complete(v);
+                    }
+                }));
+            } catch (Throwable t) {
+                out.completeExceptionally(t);
+            }
+        });
+        return out;
+    }
+
     @javax.annotation.Nullable
     private static com.mrgregles.bsp_inventorysync.panel.PanelService panel() {
         net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();

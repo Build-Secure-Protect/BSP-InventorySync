@@ -27,7 +27,7 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * {@code /grave} for every player (D25 14a): the list and {@code /grave recover <id>}; and the admin grave commands
- * under {@code /invsync} (level 2): {@code graves <player>}, {@code grave open|give|remove <player> <id> [to]}. The work is
+ * under {@code /invsync} (level 2): {@code graves <player>}, {@code grave open|give|remove|return <player> <id> [to]}. The work is
  * in {@link GraveActions}; replies come on the server thread when the store answers.
  */
 @Mod.EventBusSubscriber(modid = BSPInventorySync.MODID)
@@ -43,7 +43,7 @@ public final class GraveCommands {
                         .executes(ctx -> recover(ctx, StringArgumentType.getString(ctx, "id"))))));
     }
 
-    /** {@code graves <player>} and {@code grave open|give|remove}, joined into {@code /invsync} by {@link InvSyncCommands}. */
+    /** {@code graves <player>} and {@code grave open|give|remove|return}, joined into {@code /invsync} by {@link InvSyncCommands}. */
     static List<LiteralArgumentBuilder<CommandSourceStack>> adminNodes() {
         return List.of(
                 Commands.literal("graves").then(Commands.argument("player", GameProfileArgument.gameProfile()).executes(GraveCommands::adminList)),
@@ -54,7 +54,9 @@ public final class GraveCommands {
                                 .then(Commands.argument("id", StringArgumentType.word())
                                         .then(Commands.argument("to", GameProfileArgument.gameProfile()).executes(GraveCommands::adminGive)))))
                         .then(Commands.literal("remove").then(Commands.argument("player", GameProfileArgument.gameProfile())
-                                .then(Commands.argument("id", StringArgumentType.word()).executes(GraveCommands::adminRemove)))));
+                                .then(Commands.argument("id", StringArgumentType.word()).executes(GraveCommands::adminRemove))))
+                        .then(Commands.literal("return").then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .then(Commands.argument("id", StringArgumentType.word()).executes(GraveCommands::adminReturn)))));
     }
 
     private static GraveService service(CommandSourceStack source) {
@@ -140,6 +142,18 @@ public final class GraveCommands {
             return 0;
         }
         lines(ctx.getSource(), GraveActions.adminList(s, owner.getId(), owner.getName(), System.currentTimeMillis()));
+        return 1;
+    }
+
+    /** {@code /invsync grave return <player> <id>} (D30): the grave back into the player's inventory, now or at their next login. */
+    private static int adminReturn(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        GameProfile owner = one(ctx, "player");
+        GraveService s = service(ctx.getSource());
+        if (s == null) {
+            return 0;
+        }
+        String by = ctx.getSource().getTextName();
+        lines(ctx.getSource(), GraveActions.returnGrave(s, owner.getId(), owner.getName(), StringArgumentType.getString(ctx, "id"), by).thenApply(r -> List.of(r.message())));
         return 1;
     }
 

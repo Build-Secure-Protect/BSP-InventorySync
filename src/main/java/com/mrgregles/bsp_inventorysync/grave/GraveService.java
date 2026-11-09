@@ -99,6 +99,8 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
     private static final long SWEEP_MS = 10 * 60_000L, NOTICE_MS = 60_000L;
     /** The extra blob holding lines for a player who was not on the server where something happened to their grave. */
     public static final String NOTICE = "grave_notice";
+    /** The extra blob hinting that a player has a grave marked for return (D30 audit 4a); the marks themselves are on the graves. */
+    public static final String RETURN = "grave_return";
     /** A death under way: the inventory's layout at the death and whether it was PvP. */
     private record Death(List<GraveContents.Entry> layout, boolean pvp) {}
 
@@ -648,9 +650,134 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
         if (now >= nextNoticeAt) {
             nextNoticeAt = now + NOTICE_MS;
             deliverNotices(server.getPlayerList().getPlayers());
+            deliverReturns(server.getPlayerList().getPlayers());
         }
     }
 
+    /** The running sync, or null (no network). */
+    @Nullable
+    public SyncService syncNow() {
+        return sync.get();
+    }
+
+    /** The player's name: online here, else from the server's profile cache, else the id. */
+    public String nameOf(UUID id) {
+        ServerPlayer p = live.apply(id);
+        if (p != null) {
+            return p.getGameProfile().getName();
+        }
+        var cache = server.getProfileCache();
+        return cache == null ? id.toString() : cache.get(id).map(com.mojang.authlib.GameProfile::getName).orElse(id.toString());
+    }
+
+    /** The player on this server with that id, or null (the player list; tests set their own). */
+    @Nullable
+    public ServerPlayer livePlayer(UUID id) {
+        return live.apply(id);
+    }
+
+    /**
+     * Keeps an admin's return of the grave for its owner, who is offline or still arriving (D30 2b and its audit): the
+     * grave itself is marked (written at its revision, so it never races another change), then the owner gets a hint in
+     * the extra blob {@link #RETURN} so the minute round of whichever server they are on looks at their graves. Completes
+     * with whether the mark was written (false: the grave changed meanwhile, is still being saved, or the store failed).
+     * Server thread.
+     */
+    public CompletableFuture<Boolean> queueReturn(Grave g, String by) {
+        SyncService s = sync.get();
+        if (s == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("returning a grave to an offline player needs the sync on"));
+        }
+        com.mrgregles.bsp_inventorysync.storage.SyncStore store = s.store();
+        return access.markReturn(g, by).thenCompose(marked -> {
+            if (!marked) {
+                return CompletableFuture.completedFuture(false);
+            }
+            return hint(store, g.owner()).thenApply(v -> true);
+        });
+    }
+
+    /** The hint that the player has a grave marked for return; a failure is logged (the arrival still finds the mark). */
+    private CompletableFuture<Void> hint(com.mrgregles.bsp_inventorysync.storage.SyncStore store, UUID owner) {
+        return store.putExtra(RETURN, owner, new byte[] {1}).handle((v, e) -> {
+            if (e != null) {
+                BSPInventorySync.LOGGER.warn("BSP-InventorySync: the return hint for {} could not be stored ({}); the grave is returned at their next arrival", owner, e.toString());
+            }
+            return null;
+        });
+    }
+
+    /**
+     * Carries out the returns marked for these players (D30 and its audit). At an arrival ({@code arrival}) their graves
+     * are always looked at; in the minute round only for players with a hint, which is deleted before the graves are read
+     * (so a return marked meanwhile leaves a new hint, never lost). Only players whose data has settled here. Each marked
+     * grave is returned in turn, so each sees the inventory the one before left; one that is busy gets a new hint for the
+     * next round; one that fails keeps its mark for their next arrival. Completes with how many graves were returned.
+     * Server thread.
+     */
+    public CompletableFuture<Integer> deliverReturns(Collection<ServerPlayer> players, boolean arrival) {
+        SyncService s = sync.get();
+        if (s == null || players.isEmpty()) {
+            return CompletableFuture.completedFuture(0);
+        }
+        com.mrgregles.bsp_inventorysync.storage.SyncStore store = s.store();
+        List<CompletableFuture<Integer>> each = new ArrayList<>();
+        for (ServerPlayer p : players) {
+            if (SyncService.isSyncing(p.getUUID()) || !s.settled(p.getUUID())) {
+                continue; // after the arrival, and never to a player whose login was refused
+            }
+            CompletableFuture<Integer> f = new CompletableFuture<>();
+            each.add(f);
+            CompletableFuture<Boolean> look = arrival ? CompletableFuture.completedFuture(true)
+                    : store.extra(RETURN, p.getUUID()).thenCompose(h -> h.isEmpty() ? CompletableFuture.completedFuture(false)
+                            : store.deleteExtra(RETURN, p.getUUID()).thenApply(gone -> true));
+            access.onServer(look, (go, error) -> {
+                if (error != null || !Boolean.TRUE.equals(go)) {
+                    f.complete(0);
+                    return;
+                }
+                access.onServer(graves(p.getUUID()), (all, err) -> {
+                    if (err != null) {
+                        f.complete(0);
+                        return;
+                    }
+                    List<Grave> marked = new ArrayList<>();
+                    for (Grave g : all) {
+                        if (!g.empty() && g.owner().equals(p.getUUID()) && GraveAccess.returnMark(g) != null) {
+                            marked.add(g);
+                        }
+                    }
+                    returnInTurn(p, store, marked, 0, 0, f);
+                });
+            });
+        }
+        return CompletableFuture.allOf(each.toArray(CompletableFuture[]::new)).thenApply(v -> each.stream().mapToInt(x -> x.getNow(0)).sum());
+    }
+
+    /** The minute round and tests: {@link #deliverReturns(Collection, boolean)} for players with a hint. */
+    public CompletableFuture<Integer> deliverReturns(Collection<ServerPlayer> players) {
+        return deliverReturns(players, false);
+    }
+
+    private void returnInTurn(ServerPlayer p, com.mrgregles.bsp_inventorysync.storage.SyncStore store, List<Grave> marked, int i, int done, CompletableFuture<Integer> f) {
+        if (i >= marked.size()) {
+            f.complete(done);
+            return;
+        }
+        Grave g = marked.get(i);
+        String by = GraveAccess.returnMark(g);
+        access.giveBack(p, g.id(), by == null ? "staff" : by).whenComplete((r, e) -> server.execute(() -> {
+            var outcome = r == null ? com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.FAILED : r.outcome();
+            int now = done;
+            switch (outcome) {
+                case OK, PARTIAL -> now++;
+                case BUSY -> hint(store, p.getUUID()); // the next minute round
+                default -> BSPInventorySync.LOGGER.warn("BSP-InventorySync: {}'s return of grave {} to {} did not happen at their arrival: {}; it stays marked for their next arrival",
+                        by, g.shortId(), p.getGameProfile().getName(), r == null ? e : r.message());
+            }
+            returnInTurn(p, store, marked, i + 1, now, f);
+        }));
+    }
     // ------------------------------------------------------------------ the 30-day rules
 
     /**

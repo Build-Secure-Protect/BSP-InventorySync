@@ -1,5 +1,7 @@
 package com.mrgregles.bsp_inventorysync.grave;
 
+import com.mrgregles.bsp_inventorysync.api.GraveReturn;
+
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
 import com.mrgregles.bsp_inventorysync.storage.Grave;
 import com.mrgregles.bsp_inventorysync.storage.GraveStore;
@@ -204,6 +206,63 @@ public final class GraveActions {
             }));
             return done;
         });
+    }
+
+    /**
+     * Returns the grave to its owner (D30): at once when they are on this server (their data arrived), at their next
+     * arrival anywhere when they are offline (or still arriving here), refused when they are on another server (that
+     * server named). Only a grave that could not be placed, one put away, or one whose headstone is gone. Server thread.
+     */
+    public static CompletableFuture<GraveReturn> returnGrave(GraveService s, UUID owner, String name, String id, String by) {
+        return onServer(s, s.graves(owner), all -> {
+            Optional<Grave> found = byId(all, id);
+            String here = s.serverIdNow();
+            if (found.isEmpty()) {
+                return done(GraveReturn.Outcome.NOT_FOUND, noSuch(name, id), here);
+            }
+            Grave g = found.get();
+            if (!s.access().returnable(g)) {
+                return done(GraveReturn.Outcome.REFUSED, name + "'s grave " + g.shortId() + " still stands (" + where(g) + "): it is opened where it stands.", here);
+            }
+            ServerPlayer p = s.livePlayer(owner);
+            com.mrgregles.bsp_inventorysync.sync.SyncService sync = s.syncNow();
+            boolean arriving = p != null && com.mrgregles.bsp_inventorysync.sync.SyncService.isSyncing(owner);
+            if (p != null && !arriving) {
+                if (sync != null && sync.refused(owner)) {
+                    return done(GraveReturn.Outcome.FAILED, name + "'s login here was refused (their data could not be loaded); return it when they are back.", here);
+                }
+                return s.access().giveBack(p, g.id(), by);
+            }
+            if (sync == null) {
+                return done(GraveReturn.Outcome.FAILED, name + " is not on this server, and returning a grave to someone offline needs the sync on.", here);
+            }
+            return onServer(s, sync.store().presence(owner), presence -> {
+                if (p == null && presence.isPresent() && presence.get().onlineElsewhere(here)) {
+                    String there = presence.get().serverId();
+                    return CompletableFuture.completedFuture(new GraveReturn(GraveReturn.Outcome.ONLINE, name + " is on " + there + "; return it there.", 0, 0, 0, there));
+                }
+                return onServer(s, s.queueReturn(g, by), marked -> {
+                    if (!marked) {
+                        return done(GraveReturn.Outcome.BUSY, "That grave changed meanwhile or is still being saved; try again in a moment.", here);
+                    }
+                    BSPInventorySync.LOGGER.info("BSP-InventorySync: {} returns grave {} ({}'s) at their next arrival", by, g.shortId(), name);
+                    return done(GraveReturn.Outcome.QUEUED, name + (arriving ? "'s data is still arriving: " : " is offline: ") + "they get grave " + g.shortId()
+                            + " back " + (arriving ? "in a moment." : "at their next login, on any server."), here);
+                });
+            });
+        });
+    }
+
+    private static CompletableFuture<GraveReturn> done(GraveReturn.Outcome outcome, String message, String here) {
+        return CompletableFuture.completedFuture(new GraveReturn(outcome, message, 0, 0, 0, here));
+    }
+
+    /** Every grave of the player that still holds something, newest death first, as the api lists them (D30). */
+    public static CompletableFuture<List<com.mrgregles.bsp_inventorysync.api.GraveInfo>> infos(GraveService s, UUID owner, long now) {
+        return onServer(s, s.graves(owner), all -> CompletableFuture.completedFuture(all.stream().filter(g -> !g.empty())
+                .map(g -> new com.mrgregles.bsp_inventorysync.api.GraveInfo(g.id(), g.shortId(), g.serverId(), g.dimension(), g.x(), g.y(), g.z(), g.placed(), g.archived(),
+                        g.diedAt(), g.touchedAt(), g.stacks(), g.xp(), recoverable(s, g, now), s.access().returnable(g)))
+                .toList()));
     }
 
     /** Empties the grave for good (its block too) with a log line listing every stack. */

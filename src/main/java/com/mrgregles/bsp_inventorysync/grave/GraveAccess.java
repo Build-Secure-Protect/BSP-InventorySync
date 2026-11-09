@@ -443,9 +443,186 @@ public final class GraveAccess {
                 refreshOthers(menu, stored);
             }
             if (!leftover.isEmpty()) {
-                keepForTaker(p, g, leftover, c.extras());
+                keepForTaker(p, g, leftover, c.extras(), 0);
             }
         }));
+    }
+
+    /** In a grave's extras: who asked for it to be returned to its owner at their next arrival (D30, audit 4a). */
+    static final String RETURN_BY = "ReturnBy";
+
+    /** Whether an admin may return the grave (D30 5b): one that could not be placed, or one put away. A standing headstone is opened where it stands. */
+    boolean returnable(Grave g) {
+        return !g.placed() || g.archived();
+    }
+
+    /** Who marked the grave to be returned at its owner's next arrival, or null. */
+    @Nullable
+    static String returnMark(Grave g) {
+        try {
+            CompoundTag extras = GraveContents.decode(g.data()).extras();
+            return extras.contains(RETURN_BY, Tag.TAG_STRING) ? extras.getString(RETURN_BY) : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Marks the grave to be returned to its owner at their next arrival (D30 2b): written at the grave's revision, so it
+     * never races another change. Completes with whether it was written (false: the grave changed meanwhile, or the
+     * store did not answer).
+     */
+    CompletableFuture<Boolean> markReturn(Grave g, String by) {
+        GraveStore store = graves.storeFor(g.id());
+        if (store == null) {
+            return CompletableFuture.completedFuture(false);
+        }
+        GraveContents c = GraveContents.decode(g.data());
+        CompoundTag extras = c.extras().copy();
+        extras.putString(RETURN_BY, by);
+        return write(store, g.withContents(g.stacks(), g.xp(), new GraveContents(c.entries(), extras).encode(), g.touchedAt())).thenApply(w -> w == Written.YES);
+    }
+
+    /**
+     * An admin returns the grave to its owner, online on this server with their data arrived (D30 and its audit): through
+     * the same steps as Take all (the grave is written without what fits first, and only then is that handed over), every
+     * stack goes back to the slot it came from when that is free, else into the inventory; armour is worn again, backpack
+     * and dank contents come with it, and the grave's XP goes to them. What does not fit stays in the grave, which stays
+     * recoverable with {@code /grave}: a put-away grave is brought back with no block for it, even when nothing fits.
+     * Stacks that could not be handed over after all (the player left, or the inventory changed meanwhile) go into a new
+     * grave of theirs with the XP and count as left. The return mark, if any, is cleared in the same write. The player is
+     * told, one log line, and they are saved at once. A failure answers {@code FAILED}. Server thread.
+     */
+    public CompletableFuture<com.mrgregles.bsp_inventorysync.api.GraveReturn> giveBack(ServerPlayer p, UUID graveId, String by) {
+        CompletableFuture<com.mrgregles.bsp_inventorysync.api.GraveReturn> out = new CompletableFuture<>();
+        try {
+            giveBack(p, graveId, by, out);
+        } catch (RuntimeException e) {
+            fail(out, e, graveId);
+        }
+        return out;
+    }
+
+    private void giveBack(ServerPlayer p, UUID graveId, String by, CompletableFuture<com.mrgregles.bsp_inventorysync.api.GraveReturn> out) {
+        String name = p.getGameProfile().getName();
+        SyncService sync = graves.syncNow();
+        if (SyncService.isSyncing(p.getUUID()) || (sync != null && !sync.settled(p.getUUID())) || gone(p)) {
+            out.complete(answer(com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.BUSY, name + "'s data is not settled here (still arriving, or their login was refused), or they are not alive; try again later.", 0, 0, 0));
+            return;
+        }
+        GraveStore store = graves.storeFor(graveId);
+        if (store == null) {
+            graves.retry();
+            out.complete(answer(com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.BUSY, "That grave is still being saved; try again in a moment.", 0, 0, 0));
+            return;
+        }
+        onServer(store.grave(graveId), (found, error) -> {
+            try {
+                if (error != null) {
+                    out.complete(answer(com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.FAILED, "Graves cannot be reached right now: " + error.getMessage(), 0, 0, 0));
+                    return;
+                }
+                if (found.isEmpty() || found.get().empty() || !found.get().owner().equals(p.getUUID())) {
+                    out.complete(answer(com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.NOT_FOUND, name + " has no such grave (or it has been emptied).", 0, 0, 0));
+                    return;
+                }
+                Grave g = found.get();
+                if (!returnable(g)) {
+                    out.complete(answer(com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.REFUSED, name + "'s grave " + g.shortId() + " still stands ("
+                            + GraveActions.where(g) + "): it is opened where it stands.", 0, 0, 0));
+                    return;
+                }
+                GraveContents c = GraveContents.decode(g.data());
+                List<Integer> all = new ArrayList<>();
+                for (int i = 0; i < c.entries().size(); i++) {
+                    all.add(i);
+                }
+                Plan plan = plan(p.getInventory(), c, all);
+                long now = System.currentTimeMillis();
+                CompoundTag extras = c.extras().copy();
+                extras.remove(RETURN_BY);
+                Grave next = g.withContents(plan.left().size(), 0, new GraveContents(plan.left(), extras).encode(), now);
+                if (next.archived() && !plan.left().isEmpty()) {
+                    // put away, not all of it back: brought back, with no block (it went when it was put away), so /grave recovers the rest at once
+                    next = next.withArchivedAt(0).withPlaced(false);
+                }
+                Grave planned = next;
+                write(store, next).whenComplete((written, err) -> server.execute(() -> {
+                    try {
+                        handed(p, g, c, plan, planned, store, written, by, out);
+                    } catch (RuntimeException e) {
+                        fail(out, e, graveId);
+                    }
+                }));
+            } catch (RuntimeException e) {
+                fail(out, e, graveId);
+            }
+        });
+    }
+
+    /** After the write: hands over what was planned, or says why not. */
+    private void handed(ServerPlayer p, Grave g, GraveContents c, Plan plan, Grave planned, GraveStore store, Written written, String by,
+                        CompletableFuture<com.mrgregles.bsp_inventorysync.api.GraveReturn> out) {
+        String name = p.getGameProfile().getName();
+        if (written != Written.YES) {
+            if (written == Written.UNKNOWN) {
+                BSPInventorySync.LOGGER.error("BSP-InventorySync: the database never confirmed {} returning grave {} ({}'s); if the grave no longer holds {}, give them back by hand",
+                        by, g.shortId(), g.ownerName(), describe(plan.taken()));
+                out.complete(answer(com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.FAILED, "The database did not answer; look with /invsync graves " + name + " before trying again.", 0, 0, 0));
+            } else {
+                out.complete(answer(com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.BUSY, "That grave changed meanwhile (someone took from it); try again.", 0, 0, 0));
+            }
+            return;
+        }
+        Grave stored = planned.nextRevision();
+        List<ItemStack> leftover = handOver(p, plan, g);
+        int xp = g.xp();
+        boolean away = gone(p);
+        if (xp > 0 && !away) {
+            p.giveExperiencePoints(xp);
+        }
+        if (stored.empty()) {
+            removeBlockOf(g);
+            for (GraveMenu m : List.copyOf(open.getOrDefault(g.id(), Set.of()))) {
+                m.finish();
+            }
+            open.remove(g.id());
+        } else {
+            refreshOthers(null, stored);
+        }
+        Grave kept = null;
+        int keptXp = away ? xp : 0;
+        if (!leftover.isEmpty() || keptXp > 0) {
+            kept = keepForTaker(p, g, leftover, c.extras(), keptXp); // the XP goes with them when the player left meanwhile
+        }
+        int returned = plan.taken().size() - leftover.size();
+        int left = plan.left().size() + leftover.size();
+        int xpGiven = away ? 0 : xp;
+        BSPInventorySync.LOGGER.info("BSP-InventorySync: {} returned grave {} ({}'s) to them: {} stack(s){}{}{}", by, g.shortId(), g.ownerName(), returned,
+                xpGiven > 0 ? ", " + xpGiven + " xp" : "", plan.left().isEmpty() ? "" : "; " + plan.left().size() + " stack(s) did not fit and stay in it",
+                kept == null ? "" : "; " + leftover.size() + " stack(s)" + (keptXp > 0 ? " and " + keptXp + " xp" : "") + " wait in a new grave " + kept.shortId());
+        if (!away) {
+            p.sendSystemMessage(Component.literal("An admin returned your grave: " + returned + (returned == 1 ? " stack" : " stacks") + (xpGiven > 0 ? ", " + xpGiven + " xp" : "") + "."
+                    + (left > 0 ? " " + left + (left == 1 ? " stack" : " stacks") + " did not fit and wait for you: see /grave." : "")).withStyle(ChatFormatting.GOLD));
+            SyncService sync = graves.syncNow();
+            if (sync != null && sync.settled(p.getUUID()) && (returned > 0 || xpGiven > 0)) {
+                sync.save(p, com.mrgregles.bsp_inventorysync.storage.SaveCause.ADMIN); // the grave is already emptied: a crash before the next auto-save must not lose the items
+            }
+        }
+        String where = kept == null ? "" : " " + leftover.size() + " stack(s) went into a new grave " + kept.shortId() + " (the inventory changed or they left meanwhile).";
+        out.complete(answer(left > 0 ? com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.PARTIAL : com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.OK,
+                "Returned " + name + "'s grave " + g.shortId() + ": " + returned + " stack(s)" + (xpGiven > 0 ? ", " + xpGiven + " xp" : "")
+                        + (plan.left().isEmpty() ? "." : "; " + plan.left().size() + " stack(s) did not fit and stay in it, recoverable with /grave.") + where,
+                returned, left, xpGiven));
+    }
+
+    private void fail(CompletableFuture<com.mrgregles.bsp_inventorysync.api.GraveReturn> out, RuntimeException e, UUID graveId) {
+        BSPInventorySync.LOGGER.error("BSP-InventorySync: returning grave {} failed", graveId.toString().substring(0, 8), e);
+        out.complete(answer(com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome.FAILED, "Returning that grave failed: " + e + "; see the server log.", 0, 0, 0));
+    }
+
+    private com.mrgregles.bsp_inventorysync.api.GraveReturn answer(com.mrgregles.bsp_inventorysync.api.GraveReturn.Outcome outcome, String message, int returned, int left, int xp) {
+        return new com.mrgregles.bsp_inventorysync.api.GraveReturn(outcome, message, returned, left, xp, graves.serverIdNow());
     }
 
     private static String describe(List<GraveContents.Entry> entries) {
@@ -514,19 +691,24 @@ public final class GraveAccess {
      * the database (the player's own inventory never held them, so no snapshot is involved), tried again if need be and
      * kept in this world's data meanwhile.
      */
-    private void keepForTaker(ServerPlayer p, Grave from, List<ItemStack> stacks, CompoundTag extras) {
+    private Grave keepForTaker(ServerPlayer p, Grave from, List<ItemStack> stacks, CompoundTag extras, int xp) {
         List<GraveContents.Entry> entries = new ArrayList<>();
         stacks.forEach(s -> entries.add(new GraveContents.Entry("", s)));
         long now = System.currentTimeMillis();
-        Grave kept = new Grave(UUID.randomUUID(), p.getUUID(), p.getGameProfile().getName(), graves.serverIdNow(), from.dimension(), from.x(), from.y(), from.z(), false,
-                now, now, 0, 0, entries.size(), 0, new GraveContents(entries, extras.copy()).encode());
+        CompoundTag kept0 = extras.copy();
+        kept0.remove(RETURN_BY);
+        // the server id of the grave the contents came from (D30 audit 9): its backpack and dank contents belong to that server,
+        // and are written into another server's storage only when the new grave is recovered there
+        Grave kept = new Grave(UUID.randomUUID(), p.getUUID(), p.getGameProfile().getName(), from.serverId(), from.dimension(), from.x(), from.y(), from.z(), false,
+                now, now, 0, xp, entries.size(), 0, new GraveContents(entries, kept0).encode());
         graves.keep(kept);
-        BSPInventorySync.LOGGER.info("BSP-InventorySync: {} stack(s) {} could not take from grave {} wait for them in grave {}: {}", stacks.size(),
-                p.getGameProfile().getName(), from.shortId(), kept.shortId(), describe(entries));
-        if (!p.hasDisconnected()) {
+        BSPInventorySync.LOGGER.info("BSP-InventorySync: {} stack(s){} {} could not take from grave {} wait for them in grave {}: {}", stacks.size(),
+                xp > 0 ? " and " + xp + " xp" : "", p.getGameProfile().getName(), from.shortId(), kept.shortId(), describe(entries));
+        if (!p.hasDisconnected() && !stacks.isEmpty()) {
             p.displayClientMessage(Component.literal(stacks.size() + (stacks.size() == 1 ? " stack" : " stacks") + " did not fit; they wait for you in a grave: see /grave.")
                     .withStyle(ChatFormatting.GOLD), false);
         }
+        return kept;
     }
 
     private void reread(GraveMenu menu, GraveStore store) {

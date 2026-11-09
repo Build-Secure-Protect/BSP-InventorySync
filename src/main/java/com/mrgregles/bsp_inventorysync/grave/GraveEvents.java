@@ -28,6 +28,15 @@ public final class GraveEvents {
         GraveService.start(event.getServer());
     }
 
+    /** D30: graves an admin returned while the player was offline come back after their data has arrived here. */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onRestored(com.mrgregles.bsp_inventorysync.api.event.InventoryRestoredEvent event) {
+        GraveService s = GraveService.active();
+        if (s != null) {
+            s.deliverReturns(java.util.List.of(event.getEntity()), true);
+        }
+    }
+
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
         GraveService.stop();

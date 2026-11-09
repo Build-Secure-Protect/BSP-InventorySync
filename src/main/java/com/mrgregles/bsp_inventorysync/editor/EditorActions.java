@@ -192,8 +192,10 @@ public final class EditorActions {
      * Writes an offline edit as the player's newest snapshot. Refused when the player has come online
      * anywhere, or when a newer snapshot of theirs has been saved since the editor opened. While writing,
      * this server holds the player's checkout in the store (as a server switch does), so a server they log
-     * in to meanwhile waits for the edit instead of reading the snapshot before it. The snapshot the edit
-     * started from is pinned.
+     * in to meanwhile waits for the edit instead of reading the snapshot before it. The checkout is claimed
+     * before the version is checked, in one step (D29): no arrival can slip in between the check and the
+     * write. An arrival on this server waits as well ({@link SyncService#beginWrite}). The snapshot the
+     * edit started from is pinned. Server thread.
      */
     public static CompletableFuture<List<Component>> confirmOffline(ServerPlayer admin, EditorSession session, Opened opened, SyncService sync) {
         String name = session.targetName();
@@ -202,29 +204,31 @@ public final class EditorActions {
         if (diff.isEmpty()) {
             return CompletableFuture.completedFuture(List.of(Component.literal("No changes to " + name + ".")));
         }
+        if (admin.server.getPlayerList().getPlayer(id) != null) {
+            return refuse(name + " joined this server while you edited; nothing was changed. Edit them live.");
+        }
         long from = opened.snapshot().version();
-        return sync.store().presence(id).thenCompose(p -> {
-            if (p.isPresent() && p.get().online()) {
-                return refuse(name + " came online on " + p.get().serverId() + " while you edited; nothing was changed. Edit them there.");
-            }
-            return sync.networkLatest(id).thenCompose(latest -> {
+        return com.mrgregles.bsp_inventorysync.sync.OfflineWrite.<List<Component>>run(sync, id,
+                () -> refuse("Another change to " + name + " is being written on this server, or it is still saving them; nothing was changed. Try again in a moment."),
+                held -> refuse(name + " came online on " + held.serverId() + " while you edited; nothing was changed. Edit them there."),
+                () -> sync.networkLatest(id).thenCompose(latest -> {
                 if (latest.isEmpty() || latest.get().version() != from) {
                     return refuse(name + "'s data changed while you edited (now v" + latest.map(Snapshot::version).orElse(0L) + ", you opened v" + from + "); nothing was changed. Open the editor again.");
                 }
                 CompoundTag edited = editedTag(opened.tag(), session);
                 byte[] data = PlayerSnapshotCodec.encode(edited);
-                return sync.store().setPresence(id, sync.serverId(), true) // the checkout: an arrival elsewhere waits for the write
-                        .thenCompose(v -> sync.store().save(id, sync.serverId(), SaveCause.ADMIN, data))
-                        .thenCompose(saved -> sync.store().pin(id, from, true).thenApply(x -> saved))
-                        .whenComplete((saved, error) -> sync.store().setPresence(id, sync.serverId(), false)) // released either way
-                        .thenApply(saved -> {
+                // saved under the server whose snapshot it changes (D29 audit): a dank's frequency belongs to that server,
+                // and the restore renumbers it only when the snapshot comes from another server than the one restoring it
+                return sync.store().save(id, latest.get().serverId(), SaveCause.ADMIN, data)
+                        .thenCompose(saved -> sync.store().pin(id, from, true).handle((pinned, pinError) -> {
                             BSPInventorySync.LOGGER.info("BSP-InventorySync: {} edited {}'s saved inventory (v{} to v{}): {}", admin.getGameProfile().getName(), name, from, saved.version(), diff.describe());
+                            String undo = pinError == null && Boolean.TRUE.equals(pinned)
+                                    ? "the state before is v" + from + " (pinned): /invsync restore " + name + " " + from + " undoes it while they are online."
+                                    : "the state before is v" + from + ", but it could not be pinned (" + (pinError == null ? "not found" : pinError.getMessage()) + "): pin it with /invsync pin " + name + " " + from + ".";
                             return List.<Component>of(Component.literal("Changed " + name + "'s saved inventory: " + diff.describe() + "."),
-                                    Component.literal("Saved as v" + saved.version() + "; the state before is v" + from + " (pinned): /invsync restore " + name + " " + from
-                                            + " undoes it while they are online. They get the change at their next login.").withStyle(ChatFormatting.GRAY));
-                        });
-            });
-        }).exceptionally(t -> List.of(Component.literal("Could not save the change to " + name + ": " + t.getMessage() + ". Nothing was changed.").withStyle(ChatFormatting.RED)));
+                                    Component.literal("Saved as v" + saved.version() + "; " + undo + " They get the change at their next login.").withStyle(ChatFormatting.GRAY));
+                        }));
+                })).exceptionally(t -> List.of(Component.literal("Could not save the change to " + name + ": " + t.getMessage() + ". Nothing was changed.").withStyle(ChatFormatting.RED)));
     }
 
     private static CompletableFuture<List<Component>> refuse(String line) {
@@ -234,6 +238,7 @@ public final class EditorActions {
     /** The snapshot the edit started from with its inventory and ender chest replaced; every other module (and the selected slot and cursor) kept. */
     static CompoundTag editedTag(CompoundTag original, EditorSession session) {
         CompoundTag tag = original.copy();
+        tag.remove(PlayerSnapshotCodec.KEY_NOTE); // a staff panel's note belongs to its own change, not to this one
         CompoundTag modules = tag.getCompound("Modules");
         CompoundTag inv = modules.getCompound(InventoryModule.ID);
         inv.put("Items", Slots.toTag(session.inventory()));

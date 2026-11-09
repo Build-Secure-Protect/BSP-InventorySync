@@ -98,6 +98,11 @@ public final class SyncService {
     private final ArrivalPolicy policy;
     private final Map<UUID, Pending> pending = new ConcurrentHashMap<>();
     private final Set<UUID> heldHere = ConcurrentHashMap.newKeySet();
+    /** The arrival's take of the checkout, as the store really answers it: a release waits for it (D29 audit). */
+    private final Map<UUID, CompletableFuture<?>> takes = new ConcurrentHashMap<>();
+    /** Players this server is writing an offline change of: one at a time (D29 audit). */
+    private final Set<UUID> writing = ConcurrentHashMap.newKeySet();
+    private volatile boolean stopping;
     private final Map<UUID, String> transfers = new ConcurrentHashMap<>();
     private final Map<UUID, Arrival> arrivals = new ConcurrentHashMap<>();
     private final Set<CompletableFuture<?>> inFlightSaves = ConcurrentHashMap.newKeySet();
@@ -209,6 +214,11 @@ public final class SyncService {
         return isSyncing(player) || noSave.contains(player);
     }
 
+    /** Whether this server may save the player now: their data has arrived and their login was not refused. */
+    public boolean settled(UUID player) {
+        return !mustNotSave(player);
+    }
+
     /** Whether a player's data is still arriving: frozen, inventory not yet theirs. */
     public static boolean isSyncing(UUID player) {
         return SYNCING.contains(player);
@@ -235,6 +245,14 @@ public final class SyncService {
     }
 
     /**
+     * As {@link #save(ServerPlayer, SaveCause)}, with a note stored inside the snapshot (who made an admin change:
+     * "panel: <name>", D29). The note is not part of the player's state: the next auto-save does not count it as a change.
+     */
+    public CompletableFuture<Snapshot> save(ServerPlayer player, SaveCause cause, @Nullable String note) {
+        return startSave(player, capture(player), cause, note).guarded();
+    }
+
+    /**
      * The player's state now, with what this server cannot capture carried forward from the snapshot last
      * saved or restored here: a module whose mod is missing here or that failed this time, and the
      * capabilities of mods missing here. Without that, a player passing through a server that lacks a mod
@@ -257,12 +275,17 @@ public final class SyncService {
      * store in the order they were taken.
      */
     private Saving startSave(ServerPlayer player, CompoundTag tag, SaveCause cause) {
+        return startSave(player, tag, cause, null);
+    }
+
+    private Saving startSave(ServerPlayer player, CompoundTag tag, SaveCause cause, @Nullable String note) {
         UUID id = player.getUUID();
         String name = player.getGameProfile().getName();
         savingNow.merge(id, 1, Integer::sum);
         GraveCarrier carrier = graveCarrier;
         List<com.mrgregles.bsp_inventorysync.storage.Grave> graves = carrier == null ? List.of() : List.copyOf(carrier.pendingFor(id));
-        CompletableFuture<Snapshot> raw = CompletableFuture.supplyAsync(() -> encodeChecked(tag, name), codec)
+        CompoundTag stored = note == null ? tag : PlayerSnapshotCodec.withNote(tag, note);
+        CompletableFuture<Snapshot> raw = CompletableFuture.supplyAsync(() -> encodeChecked(stored, name), codec)
                 .thenCompose(data -> graves.isEmpty() ? store.save(id, serverId, cause, data) : store.saveWithGraves(id, serverId, cause, data, graves));
         inFlightSaves.add(raw);
         raw.whenComplete((snapshot, error) -> {
@@ -349,9 +372,55 @@ public final class SyncService {
         });
     }
 
-    /** Whether this server is still writing a save of the player (an arrival waits for it: a quick relog must not read the save before). */
+    /**
+     * Whether this server is still writing a save of the player, or an offline change of theirs ({@link #beginWrite}):
+     * an arrival waits for it (a quick relog must not read the save before).
+     */
     public boolean saving(UUID player) {
         return savingNow.containsKey(player);
+    }
+
+    /**
+     * This server starts writing an offline change of the player (the editor, the staff panel; D29). Refused
+     * (false) while another change of theirs is being written here, while this server is still saving them
+     * (a logout save on its way: the change would be read past it), and once the server is stopping. Until
+     * {@link #endWrite}, an arrival of theirs on this server waits, as for this server's own save, and
+     * {@link #saving} is true. Server thread.
+     */
+    public boolean tryBeginWrite(UUID player) {
+        if (stopping || savingNow.containsKey(player) || !writing.add(player)) {
+            return false;
+        }
+        savingNow.merge(player, 1, Integer::sum);
+        return true;
+    }
+
+    /** The end of a write that {@link #tryBeginWrite} let start. */
+    public void endWrite(UUID player) {
+        if (writing.remove(player)) {
+            savingNow.computeIfPresent(player, (k, n) -> n > 1 ? n - 1 : null);
+        }
+    }
+
+    /** Whether the server is stopping: no new offline change starts. */
+    public boolean stopping() {
+        return stopping;
+    }
+
+    /** Server stop waits (bounded) for this as for a save: an offline change under way. */
+    public void track(CompletableFuture<?> work) {
+        inFlightSaves.add(work);
+        work.whenComplete((v, e) -> inFlightSaves.remove(work));
+    }
+
+    /** How long a store call may take before the watchdog gives up on it. */
+    public long storeTimeoutMs() {
+        return storeTimeoutMs;
+    }
+
+    /** Whether the player's login here was refused (their data could not be read or applied): nothing of theirs is saved. */
+    public boolean refused(UUID player) {
+        return noSave.contains(player);
     }
 
     /** A snapshot this large is logged: MySQL's MEDIUMBLOB holds 16 MB, and many servers cap a packet lower. */
@@ -469,7 +538,7 @@ public final class SyncService {
                 throw fault;
             }
             result = PlayerSnapshotCodec.apply(player, tag, new com.mrgregles.bsp_inventorysync.data.RestoreContext(snapshot.serverId(), serverId));
-            lastSavedTag.put(player.getUUID(), tag);
+            lastSavedTag.put(player.getUUID(), PlayerSnapshotCodec.withoutNote(tag));
         } finally {
             for (ItemStack totem : totems) { // also when the restore failed: the player keeps what BSP-Core handed back
                 BspCore.giveBack(player, totem);
@@ -602,14 +671,24 @@ public final class SyncService {
         player.setDeltaMovement(Vec3.ZERO);
     }
 
-    /** The source has released the player (or the wait is over): take the checkout, read and apply. */
+    /**
+     * The source has released the player (or the wait is over): take the checkout, read and apply. The checkout
+     * is claimed (D29): taken only if no other server has taken it since the poll saw it free (an offline edit
+     * written from another server, which holds it for a moment); then the player goes back to waiting. After
+     * the timeout it is taken whatever the store says, as before: the source did not answer in time.
+     */
     private void arrive(Pending p, long now, boolean fallback) {
         p.acquired = true;
         UUID id = p.player.getUUID();
         heldHere.add(id);
-        guard(store.setPresence(id, serverId, true).thenCompose(v -> networkLatest(id)), "arrival of " + p.player.getGameProfile().getName())
-                .thenApplyAsync(latest -> latest.map(s -> new Loaded(s, PlayerSnapshotCodec.decode(s.data()))), codec)
-                .whenComplete((latest, error) -> server.execute(() -> {
+        CompletableFuture<Boolean> take = fallback
+                ? store.setPresence(id, serverId, true).thenApply(v -> true)
+                : store.claim(id, serverId).thenApply(held -> held.online() && held.serverId().equals(serverId));
+        takes.put(id, take); // a release (they leave meanwhile) goes after it, whatever it answers
+        guard(take.thenCompose(took -> took ? networkLatest(id).thenApply(Optional::of) : CompletableFuture.completedFuture(Optional.<Optional<Snapshot>>empty())),
+                "arrival of " + p.player.getGameProfile().getName())
+                .thenApplyAsync(took -> took.map(latest -> latest.map(s -> new Loaded(s, PlayerSnapshotCodec.decode(s.data())))), codec)
+                .whenComplete((took, error) -> server.execute(() -> {
                     if (pending.get(id) != p) {
                         return; // left meanwhile; onLogout released the checkout
                     }
@@ -618,6 +697,12 @@ public final class SyncService {
                         finish(p, null, fallback, Arrival.Outcome.UNAVAILABLE, now);
                         return;
                     }
+                    if (took.isEmpty()) {
+                        p.acquired = false; // another server took the checkout first: wait for its release, as for any source
+                        heldHere.remove(id);
+                        return;
+                    }
+                    Optional<Loaded> latest = took.get();
                     if (p.player.isDeadOrDying()) {
                         p.waitingForRespawn = true; // apply to the respawned player instead
                         p.deferred = latest.orElse(null);
@@ -761,7 +846,7 @@ public final class SyncService {
             lastSavedTag.remove(id);
             heldHere.remove(id);
             BSPInventorySync.LOGGER.info("BSP-InventorySync: {} was refused at arrival; nothing saved", player.getGameProfile().getName());
-            return guard(store.setPresence(id, serverId, false), "release " + player.getGameProfile().getName()); // only if this server took them
+            return release(id, player.getGameProfile().getName()); // only if this server took them
         }
         if (p != null) {
             lastSavedTag.remove(id);
@@ -769,8 +854,9 @@ public final class SyncService {
             BSPInventorySync.LOGGER.info("BSP-InventorySync: {} left before their data arrived; nothing saved", player.getGameProfile().getName());
             if (p.acquired) {
                 heldHere.remove(id);
-                return guard(store.setPresence(id, serverId, false), "release " + player.getGameProfile().getName());
+                return release(id, player.getGameProfile().getName());
             }
+            takes.remove(id);
             return CompletableFuture.completedFuture(null);
         }
         if (!heldHere.contains(id)) {
@@ -778,6 +864,7 @@ public final class SyncService {
             BSPInventorySync.LOGGER.info("BSP-InventorySync: {} was not checked in here; saving on logout regardless", player.getGameProfile().getName());
         }
         heldHere.remove(id);
+        takes.remove(id);
         SaveCause cause = target != null ? SaveCause.TRANSFER : SaveCause.LOGOUT;
         CompoundTag tag = departureCapture(player);
         lastSavedTag.remove(id);
@@ -796,6 +883,17 @@ public final class SyncService {
                         lastSavedTag.remove(id); // the save put it back; nothing is kept for a player who has gone
                     }
                 });
+    }
+
+    /**
+     * Releases the checkout, after the arrival's take has really been answered by the store: with Redis, a
+     * release sent while the claim is still queued would clear Redis first and then see the claim write it
+     * back, leaving the player held there for every other server (D29 audit).
+     */
+    private CompletableFuture<Void> release(UUID id, String name) {
+        CompletableFuture<?> take = takes.remove(id);
+        CompletableFuture<Void> after = take == null ? CompletableFuture.completedFuture(null) : take.handle((v, e) -> (Void) null);
+        return guard(after.thenCompose(v -> store.setPresence(id, serverId, false)), "release " + name);
     }
 
     // ------------------------------------------------------------------ transfers (request T1)
@@ -893,6 +991,7 @@ public final class SyncService {
      * held, and closes the store.
      */
     public void shutdown(long waitMs) {
+        stopping = true;
         long deadline = System.currentTimeMillis() + waitMs;
         for (CompletableFuture<?> f : new ArrayList<>(inFlightSaves)) {
             long left = deadline - System.currentTimeMillis();
@@ -912,6 +1011,7 @@ public final class SyncService {
         }
         pending.clear();
         heldHere.clear();
+        takes.clear();
         SYNCING.clear();
         store.close();
     }

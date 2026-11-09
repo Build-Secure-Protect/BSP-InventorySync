@@ -81,7 +81,7 @@ public class CommandTests {
         SyncService service = new SyncService(h.getLevel().getServer(), new MemoryStore(), HUB, new ArrivalPolicy(10_000, false));
         List<String> lines = AdminActions.status(service).join();
         String all = joined(lines);
-        h.assertTrue(all.contains("\"hub\"") && all.contains("api 1"), "names the server and the api: " + all);
+        h.assertTrue(all.contains("\"hub\"") && all.contains("api " + com.mrgregles.bsp_inventorysync.api.InventorySyncApi.API_VERSION) && all.contains("api 2"), "names the server and the api: " + all);
         h.assertTrue(all.contains("in-memory store"), "describes the store");
         h.assertTrue(all.contains("modules: inventory, ender_chest, experience, game, vitals, advancements, forge"), "lists the modules: " + all);
         h.assertTrue(all.contains("timeout 10 s, then apply the last known"), "states the arrival policy");

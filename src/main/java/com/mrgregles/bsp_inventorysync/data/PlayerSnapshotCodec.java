@@ -37,6 +37,8 @@ public final class PlayerSnapshotCodec {
     private static final String KEY_FORMAT = "Format";
     private static final String KEY_MODULES = "Modules";
     private static final String KEY_FAILED = "Failed";
+    /** Who made an admin change, kept with the snapshot ("panel: <name>", D29); not part of the player's state. */
+    public static final String KEY_NOTE = "Note";
 
     /** What happened on load: the modules applied, those that threw, and those the snapshot lacked. */
     public record Result(List<String> applied, List<String> failed, List<String> missing) {
@@ -142,6 +144,28 @@ public final class PlayerSnapshotCodec {
             out.add(t.getAsString());
         }
         return out;
+    }
+
+    /** A copy of the snapshot with its note set. */
+    public static CompoundTag withNote(CompoundTag root, String note) {
+        CompoundTag copy = root.copy();
+        copy.putString(KEY_NOTE, note);
+        return copy;
+    }
+
+    /** The snapshot without its note: itself when it has none, else a copy. */
+    public static CompoundTag withoutNote(CompoundTag root) {
+        if (!root.contains(KEY_NOTE)) {
+            return root;
+        }
+        CompoundTag copy = root.copy();
+        copy.remove(KEY_NOTE);
+        return copy;
+    }
+
+    /** The snapshot's note, empty when it has none. */
+    public static String note(CompoundTag root) {
+        return root.getString(KEY_NOTE);
     }
 
     /** The module compound inside a snapshot, or null. */

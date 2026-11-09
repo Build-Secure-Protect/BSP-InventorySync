@@ -31,12 +31,120 @@ public final class SophisticatedBackpacks {
     @Nullable private static final Method GET_STORAGE;
     @Nullable private static final Method GET_CONTENTS;
     @Nullable private static final Method SET_CONTENTS;
+    @Nullable private static final Method GET_WRAPPER_CAPABILITY;
+    @Nullable private static final Method GET_INVENTORY_HANDLER;
 
     static {
         Class<?> storage = Reflect.type("net.p3pp3rf1y.sophisticatedbackpacks.backpack.BackpackStorage");
         GET_STORAGE = Reflect.method(storage, "get");
         GET_CONTENTS = Reflect.method(storage, "getBackpackContents", UUID.class);
         SET_CONTENTS = Reflect.method(storage, "setBackpackContents", UUID.class, CompoundTag.class);
+        GET_WRAPPER_CAPABILITY = Reflect.method(Reflect.type("net.p3pp3rf1y.sophisticatedbackpacks.api.CapabilityBackpackWrapper"), "getCapabilityInstance");
+        GET_INVENTORY_HANDLER = Reflect.method(Reflect.type("net.p3pp3rf1y.sophisticatedcore.api.IStorageWrapper"), "getInventoryHandler");
+    }
+
+    /**
+     * The live item slots of a backpack the online player carries, for a staff change (D29); null when it is
+     * not found or the mod is absent. A backpack's wrapper keeps its slots in memory once it has been used and
+     * writes them back over the saved contents at its next change, so a change must go through that wrapper,
+     * never through the saved data: the backpack's own stack is looked for (inventory, cursor, ender chest,
+     * Curios, then inside the backpacks found there); a backpack inside another item (a shulker box) has no
+     * wrapper in use and gets one from its stored item.
+     */
+    @Nullable
+    public static net.minecraftforge.items.IItemHandlerModifiable liveContents(ServerPlayer player, UUID uuid) {
+        if (!present() || GET_WRAPPER_CAPABILITY == null || GET_INVENTORY_HANDLER == null) {
+            return null;
+        }
+        java.util.ArrayDeque<ItemStack> todo = new java.util.ArrayDeque<>();
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            todo.add(player.getInventory().getItem(i));
+        }
+        todo.add(player.containerMenu.getCarried());
+        for (int i = 0; i < player.getEnderChestInventory().getContainerSize(); i++) {
+            todo.add(player.getEnderChestInventory().getItem(i));
+        }
+        todo.addAll(Curios.liveItems(player));
+        Set<UUID> opened = new java.util.HashSet<>();
+        java.util.List<ItemStack> others = new java.util.ArrayList<>();
+        while (!todo.isEmpty()) {
+            ItemStack stack = todo.poll();
+            if (stack.isEmpty()) {
+                continue;
+            }
+            Optional<UUID> id = contentsUuid(stack);
+            if (id.isEmpty()) {
+                others.add(stack);
+                continue;
+            }
+            net.minecraftforge.items.IItemHandlerModifiable handler = handler(stack);
+            if (id.get().equals(uuid)) {
+                return handler;
+            }
+            if (handler != null && opened.add(id.get())) {
+                for (int i = 0; i < handler.getSlots(); i++) {
+                    todo.add(handler.getStackInSlot(i));
+                }
+            }
+        }
+        for (ItemStack stack : others) {
+            CompoundTag nested = stack.hasTag() ? nestedItem(stack.getTag(), uuid) : null;
+            if (nested != null) {
+                return handler(ItemStack.of(nested));
+            }
+        }
+        return null;
+    }
+
+    /** The item compound inside a tag tree whose own tag has this contents id, or null. */
+    @Nullable
+    private static CompoundTag nestedItem(Tag tag, UUID uuid) {
+        if (tag instanceof CompoundTag c) {
+            if (c.contains("id", Tag.TAG_STRING) && c.getCompound("tag").hasUUID(CONTENTS_UUID) && c.getCompound("tag").getUUID(CONTENTS_UUID).equals(uuid)) {
+                return c;
+            }
+            for (String key : c.getAllKeys()) {
+                CompoundTag found = nestedItem(c.get(key), uuid);
+                if (found != null) {
+                    return found;
+                }
+            }
+        } else if (tag instanceof ListTag list) {
+            for (Tag t : list) {
+                CompoundTag found = nestedItem(t, uuid);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    private static net.minecraftforge.items.IItemHandlerModifiable handler(ItemStack stack) {
+        Object cap = Reflect.call(GET_WRAPPER_CAPABILITY, null);
+        if (!(cap instanceof net.minecraftforge.common.capabilities.Capability<?> capability)) {
+            return null;
+        }
+        Optional<?> wrapper = stack.getCapability(capability).resolve();
+        Object handler = wrapper.isPresent() ? Reflect.call(GET_INVENTORY_HANDLER, wrapper.get()) : null;
+        return handler instanceof net.minecraftforge.items.IItemHandlerModifiable m ? m : null;
+    }
+
+    /**
+     * How many of this item a live backpack slot holds (its stack upgrades counted), 0 when the slot refuses the
+     * item (a filter or a memorised slot). Through the backpack's own {@code getStackLimit} when it has one.
+     */
+    public static int stackLimit(net.minecraftforge.items.IItemHandler handler, int slot, ItemStack stack) {
+        if (!handler.isItemValid(slot, stack)) {
+            return 0;
+        }
+        Method limit = Reflect.method(handler.getClass(), "getStackLimit", int.class, ItemStack.class);
+        Object n = limit == null ? null : Reflect.call(limit, handler, slot, stack);
+        if (n instanceof Integer i) {
+            return i;
+        }
+        return Math.max(stack.getMaxStackSize(), handler.getSlotLimit(slot) / 64 * stack.getMaxStackSize());
     }
 
     private SophisticatedBackpacks() {}

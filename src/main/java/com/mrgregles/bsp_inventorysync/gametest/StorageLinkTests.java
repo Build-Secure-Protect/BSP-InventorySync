@@ -124,6 +124,31 @@ public class StorageLinkTests {
         }
     }
 
+    /** The checkout claim (D29): the database decides; Redis is told only when this server took it, and its held set lets a stop release it. */
+    @GameTest(template = EMPTY, timeoutTicks = 400)
+    public static void fast_store_claims_through_the_database_and_then_tells_redis(GameTestHelper h) throws IOException {
+        FakeRedis redis = FakeRedis.start("");
+        MemoryStore inner = new MemoryStore(() -> 5);
+        FastStore fast = new FastStore(inner, client(redis, ""), "test", 60_000);
+        UUID alice = UUID.randomUUID();
+        try {
+            wait(h, inner.setPresence(alice, PVP, true), "pvp holds alice in the database only");
+            Presence refused = wait(h, fast.claim(alice, HUB), "claim while pvp holds her");
+            h.assertTrue(refused.online() && refused.serverId().equals(PVP), "refused, pvp named: " + refused);
+            h.assertTrue(redis.get(fast.presenceKey(alice)) == null, "nothing written to Redis for a refused claim");
+            wait(h, inner.setPresence(alice, PVP, false), "pvp releases");
+            Presence taken = wait(h, fast.claim(alice, HUB), "claim");
+            h.assertTrue(taken.online() && taken.serverId().equals(HUB), "taken: " + taken);
+            h.assertTrue(redis.get(fast.presenceKey(alice)) != null && redis.get(fast.presenceKey(alice)).startsWith("1|hub|"), "Redis told: " + redis.get(fast.presenceKey(alice)));
+            wait(h, fast.clearPresence(HUB), "hub stops");
+            h.assertTrue(redis.get(fast.presenceKey(alice)).startsWith("0|hub|"), "released by the stop through the held set: " + redis.get(fast.presenceKey(alice)));
+        } finally {
+            fast.close();
+            redis.close();
+        }
+        h.succeed();
+    }
+
     @GameTest(template = EMPTY, timeoutTicks = 400)
     public static void fast_store_serves_presence_and_snapshots_from_redis_and_falls_back(GameTestHelper h) throws IOException {
         FakeRedis redis = FakeRedis.start("");

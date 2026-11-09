@@ -187,6 +187,12 @@ public final class MemoryStore implements SyncStore {
     }
 
     @Override
+    public CompletableFuture<Presence> claim(UUID player, String serverId) {
+        long now = clock.getAsLong();
+        return done(presence.compute(player, (k, cur) -> cur == null || !cur.online() || cur.serverId().equals(serverId) ? new Presence(player, true, serverId, now) : cur));
+    }
+
+    @Override
     public CompletableFuture<Integer> clearPresence(String serverId) {
         int n = 0;
         long now = clock.getAsLong();

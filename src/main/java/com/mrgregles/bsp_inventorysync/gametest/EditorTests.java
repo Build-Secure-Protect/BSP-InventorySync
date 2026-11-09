@@ -409,7 +409,7 @@ public class EditorTests {
         h.assertTrue(text(reply).startsWith("Changed Alex's saved inventory: -10 Stone"), "the reply: " + text(reply));
 
         Snapshot v2 = store.latest(id).join().orElseThrow();
-        h.assertTrue(v2.version() == 2 && v2.cause() == SaveCause.ADMIN && v2.serverId().equals("hub"), "saved as v2, admin, by this server: " + v2);
+        h.assertTrue(v2.version() == 2 && v2.cause() == SaveCause.ADMIN && v2.serverId().equals("pvp"), "saved as v2, admin, under pvp (whose snapshot it changes, D29 audit): " + v2);
         net.minecraft.nbt.CompoundTag after = com.mrgregles.bsp_inventorysync.data.PlayerSnapshotCodec.decode(v2.data());
         net.minecraft.nbt.ListTag items = com.mrgregles.bsp_inventorysync.data.PlayerSnapshotCodec.module(after, "inventory").getList("Items", net.minecraft.nbt.Tag.TAG_COMPOUND);
         List<String> ids = items.stream().map(t -> ((net.minecraft.nbt.CompoundTag) t).getCompound("Item").getString("id")).toList();
@@ -441,6 +441,28 @@ public class EditorTests {
         store.setPresence(id, "pvp", false).join();
         h.assertTrue(text(EditorActions.confirmOffline(admin, s, opened, sync).join()).contains("changed while you edited (now v2, you opened v1)"), "refused after a newer save");
         h.assertTrue(store.latest(id).join().orElseThrow().version() == 2 && store.latest(id).join().orElseThrow().cause() == SaveCause.LOGOUT, "their own v2 stands");
+        h.succeed();
+    }
+
+    /** D29 audit: one offline change at a time per player on a server; a panel's note never rides on an editor change. */
+    @GameTest(template = EMPTY)
+    public static void an_offline_edit_waits_for_another_change_here_and_drops_a_panel_note(GameTestHelper h) {
+        ServerPlayer admin = TestPlayers.mockServerPlayer(h);
+        MemoryStore store = new MemoryStore();
+        SyncService sync = new SyncService(h.getLevel().getServer(), store, "hub");
+        java.util.UUID id = java.util.UUID.randomUUID();
+        EditorActions.Opened opened = savedPlayer(h, store, id);
+        net.minecraft.nbt.CompoundTag noted = com.mrgregles.bsp_inventorysync.data.PlayerSnapshotCodec.withNote(opened.tag(), "panel: Mod");
+        EditorActions.Opened fromPanel = new EditorActions.Opened(opened.snapshot(), noted);
+        EditorSession s = EditorActions.offlineSession(id, "Alex", noted, TEST_LIST);
+        s.click(0, 0, false);
+        s.click(TOOLBAR + 6, 0, false);
+        h.assertTrue(sync.tryBeginWrite(id), "a panel change is being written");
+        h.assertTrue(text(EditorActions.confirmOffline(admin, s, fromPanel, sync).join()).contains("Another change to Alex is being written"), "the editor is told to wait");
+        sync.endWrite(id);
+        h.assertTrue(text(EditorActions.confirmOffline(admin, s, fromPanel, sync).join()).startsWith("Changed Alex's saved inventory"), "then it goes through");
+        Snapshot v2 = store.latest(id).join().orElseThrow();
+        h.assertTrue(com.mrgregles.bsp_inventorysync.data.PlayerSnapshotCodec.note(com.mrgregles.bsp_inventorysync.data.PlayerSnapshotCodec.decode(v2.data())).isEmpty(), "without the panel's note");
         h.succeed();
     }
 

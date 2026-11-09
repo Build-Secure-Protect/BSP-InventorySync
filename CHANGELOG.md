@@ -4,6 +4,21 @@ All notable changes to BSP-InventorySync are recorded here. The format follows [
 
 ## [Unreleased]
 
+### Added
+- **An api for staff tools** (Server Utilities' staff web panel, its request SU-IS2), `InventorySyncApi.API_VERSION` 2, documented in `docs/API.md` under "Staff tools":
+  - `read(UUID)`: a player's items as areas of slots: inventory, armour, offhand, cursor, ender chest, Curios slots, the item slots of every carried Sophisticated Backpack (with where each sits: "in ender chest", "inside Shulker Box", inside another backpack) and Dank Storage danks. Live for a player on this server, otherwise their newest snapshot, with its version, whether they are online and where. A Shatter Totem is shown locked, as an inert copy; a missing mod's item is named; a linked-storage backpack is read-only.
+  - `edit(UUID, expectedVersion, Edit, by)`: add a number of an item (all or nothing), or remove a number from one slot that must still hold the item seen. Live on this server, into the inventory, ender chest, a backpack or a dank through the mods' own rules, saved at once with the state before pinned; offline on the newest snapshot as `/invsync edit` offline does, into the inventory or ender chest (backpacks and danks only give items up there); refused for a player online on another server. Answers `OK`, `ONLINE`, `CHANGED`, `BUSY`, `NO_ROOM`, `REFUSED` or `FAILED`, with a line for staff and the saved and pinned versions. Never adds or removes a live Shatter Totem, not even inside another item, and never adds an item carrying a backpack's or dank's contents id.
+  - `saveNow(ServerPlayer)`: saves a player now, so a change made to them some other way survives a crash before the next auto-save.
+  - Each change is logged as "panel: <by>" and noted inside its admin snapshot.
+
+### Fixed
+- Taking a player's checkout is now one step in the store, taken only when nobody else holds it (`SyncStore.claim`). Before, a player logging in at the very moment an offline `/invsync edit` was written from another server could get the snapshot from before the edit, and the edit was then lost to their next save. The arrival now waits for that server to finish; an offline edit claims the checkout before it checks the version; and an arrival on the server writing the edit waits too. The release lands before the edit answers, and a player who leaves while their arrival's claim is still on its way is released only after it (with Redis, the other order left them held for every other server).
+- `/invsync edit` offline saved its change under the editing server's id, so a player's dank from the server they last played on could take the contents of another dank on the editing server at their next login there. A change is now saved under the server id of the snapshot it changes. It also waits for another change of the same player on the same server and for that server's own save of them, reports a failed pin as such, and no longer carries a staff panel's note onto its own snapshot.
+
+### Upgrading
+- Update every backend together: an older build still takes the checkout the old way, so the fix holds only once every server has it. The stored format is unchanged (a staff change adds an optional `Note` to its snapshot, which older builds ignore).
+- Every client needs this jar (the exact version rule).
+
 ## [0.6.0] - 2026-11-08
 
 ### Changed

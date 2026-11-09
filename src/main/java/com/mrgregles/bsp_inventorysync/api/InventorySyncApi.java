@@ -7,7 +7,9 @@ import com.mrgregles.bsp_inventorysync.sync.SyncService;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 
 /**
@@ -16,7 +18,7 @@ import java.util.function.Predicate;
  */
 public final class InventorySyncApi {
     /** Bumped when anything here changes shape. Compile-time constant: catch {@link LinkageError} to detect an older mod. */
-    public static final int API_VERSION = 1;
+    public static final int API_VERSION = 2;
 
     private InventorySyncApi() {}
 
@@ -61,5 +63,64 @@ public final class InventorySyncApi {
     public static boolean cancelTransfer(ServerPlayer player) {
         SyncService s = Sync.active();
         return s != null && s.cancelTransfer(player);
+    }
+
+    // ------------------------------------------------------------------ staff tools (API_VERSION 2, SU-IS2)
+
+    /**
+     * A player's items (API_VERSION 2): live when they are on this server and their data has arrived, otherwise
+     * their newest snapshot, with Curios slots, backpacks and danks. A player online on another server is read
+     * from their newest snapshot, up to one auto-save old ({@code online} true, {@code serverId} that server):
+     * ask that server for the live view. Empty when there is nothing to show (no saved data, or the sync is off
+     * and they are not on this server). Callable from any thread; the future completes on the server thread, so
+     * never {@code join()} it there (it would hang the server): use {@code thenAccept}. It fails when the store
+     * does, or when no server is running.
+     */
+    public static CompletableFuture<Optional<PlayerItems>> read(UUID player) {
+        com.mrgregles.bsp_inventorysync.panel.PanelService p = panel();
+        return p == null ? CompletableFuture.failedFuture(new IllegalStateException("no server running")) : p.read(player);
+    }
+
+    /**
+     * Makes one change to a player's items (API_VERSION 2); see {@link EditResult.Outcome} for the answers.
+     * <ul>
+     * <li>On this server, live: {@code expectedVersion} is not used (the slot is checked instead). The state
+     * before is saved and pinned, the change saved as an {@code ADMIN} snapshot noted "panel: {@code by}".</li>
+     * <li>Offline: on their newest snapshot, only while it is still {@code expectedVersion}
+     * ({@link PlayerItems#version()}); one change at a time per player on this server, written under the player's
+     * checkout as {@code /invsync edit} offline does, saved under the server id of the snapshot it changes, the
+     * version it started from pinned. They get it at their next login, on any server.</li>
+     * <li>Online on another server: {@code ONLINE}, nothing changed.</li>
+     * </ul>
+     * A live Shatter Totem is never added or removed, not even inside another item. Offline, backpacks and danks
+     * only give items up. Callable from any thread; the future completes on the server thread, so never
+     * {@code join()} it there (it would hang the server). Failures are answered as {@code FAILED}; the future
+     * itself fails only when no server is running.
+     */
+    public static CompletableFuture<EditResult> edit(UUID player, long expectedVersion, Edit change, String by) {
+        com.mrgregles.bsp_inventorysync.panel.PanelService p = panel();
+        return p == null ? CompletableFuture.failedFuture(new IllegalStateException("no server running")) : p.edit(player, expectedVersion, change, by);
+    }
+
+    /**
+     * Saves a player of this server now, as an admin snapshot (API_VERSION 2). Any change to their inventory,
+     * ender chest, Curios, backpacks or danks is saved by the next auto-save anyway (every 60 s by default, only
+     * when something changed); this closes that window, so a change made some other way survives a crash.
+     * Completes with the new version, or 0 when the sync is off here or their data is still arriving (nothing
+     * is saved then). Call on the server thread; the future completes there (never {@code join()} it there), and
+     * fails when the store does.
+     */
+    public static CompletableFuture<Long> saveNow(ServerPlayer player) {
+        com.mrgregles.bsp_inventorysync.panel.PanelService p = panel();
+        return p == null ? CompletableFuture.completedFuture(0L) : p.saveNow(player);
+    }
+
+    @javax.annotation.Nullable
+    private static com.mrgregles.bsp_inventorysync.panel.PanelService panel() {
+        net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) {
+            return null;
+        }
+        return new com.mrgregles.bsp_inventorysync.panel.PanelService(server, Sync.active(), id -> server.getPlayerList().getPlayer(id), server);
     }
 }

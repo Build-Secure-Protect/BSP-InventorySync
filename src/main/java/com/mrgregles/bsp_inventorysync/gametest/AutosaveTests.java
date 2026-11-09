@@ -136,6 +136,7 @@ public class AutosaveTests {
         @Override public CompletableFuture<Integer> prune(UUID player, int keep) { return never(); }
         @Override public CompletableFuture<Optional<Presence>> presence(UUID player) { return never(); }
         @Override public CompletableFuture<Void> setPresence(UUID player, String serverId, boolean online) { return never(); }
+        @Override public CompletableFuture<Presence> claim(UUID player, String serverId) { return never(); }
         @Override public CompletableFuture<Integer> clearPresence(String serverId) { return never(); }
         @Override public CompletableFuture<Optional<byte[]>> extra(String kind, UUID key) { return never(); }
         @Override public CompletableFuture<Void> putExtra(String kind, UUID key, byte[] data) { return never(); }

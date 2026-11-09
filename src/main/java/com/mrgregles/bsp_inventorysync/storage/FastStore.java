@@ -227,6 +227,23 @@ public final class FastStore implements SyncStore {
         });
     }
 
+    /**
+     * The database decides who takes the checkout; Redis is then told, so the other servers' fast reads see it.
+     * When another server holds the player nothing is written here: Redis may lag the database, and the next
+     * claim asks the database again anyway.
+     */
+    @Override
+    public CompletableFuture<Presence> claim(UUID player, String serverId) {
+        return inner.claim(player, serverId).thenCompose(p -> {
+            if (!p.online() || !p.serverId().equals(serverId)) {
+                return CompletableFuture.completedFuture(p);
+            }
+            return quiet(redis.set(presenceKey(player), encodePresence(true, serverId, p.since()), 0))
+                    .thenCompose(v -> quiet(redis.sadd(heldKey(serverId), player.toString())))
+                    .thenApply(v -> p);
+        });
+    }
+
     @Override
     public CompletableFuture<Integer> clearPresence(String serverId) {
         long now = System.currentTimeMillis();

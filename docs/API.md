@@ -2,7 +2,7 @@
 
 Package `com.mrgregles.bsp_inventorysync.api`. Compile against the BSP-InventorySync jar from `build/libs/` (ForgeGradle: a `flatDir` repository and `compileOnly fg.deobf("blank:bsp-inventorysync:<version>")`); keep every call in one adapter class on your side and reach it only when `bsp_inventorysync` is loaded. These classes are the only ones meant for other mods; anything else in the jar may change without notice.
 
-`InventorySyncApi.API_VERSION` is `1`. It is a compile-time constant, so catch `LinkageError` to detect an older BSP-InventorySync.
+`InventorySyncApi.API_VERSION` is `2` (2 added `read`, `edit` and `saveNow`, below). It is a compile-time constant, so catch `LinkageError` to detect an older BSP-InventorySync.
 
 | Call | What |
 |---|---|
@@ -12,6 +12,69 @@ Package `com.mrgregles.bsp_inventorysync.api`. Compile against the BSP-Inventory
 | `InventorySyncApi.isEnabled()` | Whether this server syncs at all (`storage.mode` is `mysql`). |
 | `InventorySyncApi.beginTransfer(ServerPlayer, String targetServer)` | For a teleport mod about to send the player to another server: call it after BSP-Core's `BspTransfer.beginTransfer` and before the proxy switch. Takes a snapshot now, so the save is in flight when the player leaves; the logout saves once more, marked as a transfer. Returns false when sync is off here or the player's own data is still arriving. |
 | `InventorySyncApi.cancelTransfer(ServerPlayer)` | The announced transfer did not happen; the next logout is an ordinary one. |
+| `InventorySyncApi.read(UUID)` | API 2. A player's items for a staff tool, live or from their newest snapshot: `CompletableFuture<Optional<PlayerItems>>`. See "Staff tools". |
+| `InventorySyncApi.edit(UUID, long expectedVersion, Edit, String by)` | API 2. One change to a player's items, live or on their newest snapshot: `CompletableFuture<EditResult>`. See "Staff tools". |
+| `InventorySyncApi.saveNow(ServerPlayer)` | API 2. Saves a player of this server now, as an admin snapshot: `CompletableFuture<Long>`, the new version, or 0 when the sync is off here or their data is still arriving (nothing saved). Server thread. |
+
+## Staff tools: reading and changing a player's items (API 2)
+
+Built for Server Utilities' staff web panel (its request SU-IS2; decisions D29 here and its audit, D256 and D257 there). Nothing here kicks, freezes or teleports anyone.
+
+**Threads.** `read` and `edit` may be called from any thread; `saveNow` on the server thread. All three futures complete on the server thread. Never `join()` or `get()` them on the server thread: the answer needs the server thread (and often the database), so that would hang the server. Use `thenAccept` and friends. `read` and `saveNow` fail (complete exceptionally) when the store fails or when no server is running; `edit` answers `FAILED` with the reason instead, except when no server is running.
+
+**Where the player is decides what happens.** The server that holds the player (their checkout) is the only one that changes them; a panel sends the request to its agent on that server.
+
+| The player is | `read` gives | `edit` does |
+|---|---|---|
+| on this server, data arrived | live data (`live` true), with `version` the newest snapshot's | the change live; `expectedVersion` is not used (the slot is checked instead); the state before is saved and pinned, the change saved as an `admin` snapshot noted "panel: <by>"; answers with both versions |
+| on this server, data still arriving | the newest snapshot (`live` false, `online` true) | `BUSY` |
+| on this server, login refused (their data could not be read or applied) | the newest snapshot | `FAILED`, with the reason |
+| online on another server | the newest snapshot, up to one auto-save old (`online` true, `serverId` that server) | `ONLINE`, `serverId` that server; nothing changed |
+| offline | the newest snapshot (`serverId` the last server) | the change on that snapshot, only while it is still `expectedVersion`; the same steps as `/invsync edit` offline: one change at a time per player on this server, the checkout claimed while writing, the change saved as an `admin` snapshot noted "panel: <by>" under the server id of the snapshot it changes (a dank's frequency belongs to that server, so the restore renumbers it correctly), the version it started from pinned; they get it at their next login on any server |
+| unknown (never saved), or the sync is off here and they are not here | empty | `FAILED` |
+
+**`PlayerItems`**: `player`, `online`, `serverId` (empty when the sync is off here), `live`, `version` (pass it to `edit` for an offline player; 0 when there is no snapshot), `savedAt`, `areas` (a list of `ItemArea`; `area(id)` finds one).
+
+**`ItemArea`**: `id`, `kind`, `addable`, `removable`, `place`, `slots` (slot `i` is `slots().get(i)`, empty ones included), `size()`, `slot(i)`, `key()`. The areas, in this order (a section the snapshot lacks because it failed to save has no area):
+
+| id | kind | slots | `edit` may add | may remove |
+|---|---|---|---|---|
+| `inventory` | `INVENTORY` | 36: 0 to 8 the hotbar, 9 to 35 the rest | yes | yes |
+| `armor` | `ARMOR` | 4: 0 feet, 1 legs, 2 chest, 3 head | no | yes |
+| `offhand` | `OFFHAND` | 1 | no | yes |
+| `cursor` | `CURSOR` | 1 (the item held on the mouse in an open screen) | no | yes |
+| `ender_chest` | `ENDER_CHEST` | 27 in vanilla | yes | yes |
+| `curios/<type>`, `curios_cosmetic/<type>` | `CURIOS`, `CURIOS_COSMETIC` | one Curios slot type (`ring`, `back`, ...); the cosmetic row only when the type has one; `key()` is the type | no | yes |
+| `backpack/<contentsUuid>` | `BACKPACK` | a Sophisticated Backpack's item slots (not its upgrades or settings); `key()` is the contents id; a backpack never opened has 0 slots (its contents do not exist yet) | live only | yes, except a linked-storage backpack (read-only: its items live in another backpack) |
+| `dank/<frequency>` | `DANK` | a Dank Storage dank's slots (9 to 81 by tier); `key()` is its frequency on the server the data comes from | live only | yes |
+
+In a snapshot a backpack's filters, memorised slots and stack upgrades and a dank's tier limit are not stored, so offline they only give items up. Backpacks are every backpack the snapshot carries: in the inventory, on the cursor, in the ender chest, in a Curios slot, inside a shulker box or any other item, and inside other backpacks. Danks are those in the inventory, ender chest and cursor (as the sync saves them).
+
+**`ItemPlace`** (`place` of a backpack or dank area): `area` and `slot` of the slot holding it, and `inside`, the item ids of the containers in between, outermost first. In the ender chest: `ender_chest`, 2, `[]`. Inside a shulker box in inventory slot 7: `inventory`, 7, `[minecraft:shulker_box]`. Inside another backpack: `backpack/<that one's id>`, its slot, `[]`. Null when the backpack's item was not found among the player's items.
+
+**`ItemSlot`**: `index`, `stack` (a copy; backpack and dank counts above 64 are real), `missingItem` (the item's id when its mod is missing on the server that read it: `stack` is then this mod's placeholder barrier, which keeps the real item and may be removed like any other; null otherwise), `locked` (a live Shatter Totem: `stack` is then an inert copy with the totem's look, a spent husk; show it locked, and never place or give it).
+
+**`Edit`**, one change per call:
+- `Edit.add(area, stack)`: puts `stack.getCount()` of the item into an addable area, first onto stacks of the same item and tags, then into empty slots in order; all of it or nothing (`NO_ROOM`). Live, a backpack takes what its own rules allow (filters, memorised slots, stack upgrades; nothing is voided) and a dank what its tier, its locked slots and its blacklist allow. Refused (`REFUSED`) for a Shatter Totem anywhere in the item (a shulker box holding one), an item carrying a backpack's or dank's contents id or a storage link (two items would share one inventory; add an empty one), an item no snapshot carries, a missing mod's placeholder, more than 100 stacks' worth (as `/invsync give`), and for areas that only give items up.
+- `Edit.remove(area, slot, expected, count)`: takes `count` from one slot, which must still hold `expected` (the same item and tags as the read showed; the count is not compared) with at least `count` of it; otherwise `CHANGED`. Refused when the slot's item is or holds a live Shatter Totem (inside it, or in a backpack it is or holds), and in a linked-storage backpack.
+
+**`EditResult`**: `outcome`, `message` (one plain line for staff), `version` (the snapshot the change was saved as; 0 when it could not be saved yet, and then it is saved with the player's next save; also 0 with the sync off here, where this mod saves nothing), `pinnedVersion` (the state before, pinned: `/invsync restore <player> <version>` undoes the change while they are online; 0 when it could not be saved or pinned, which the message says), `serverId` (`ONLINE`: the server holding them; otherwise this one), `ok()`. Nothing was changed unless the outcome is `OK`.
+
+| Outcome | Meaning |
+|---|---|
+| `OK` | done |
+| `ONLINE` | online on `serverId`: make the change there |
+| `CHANGED` | the data moved since it was read: a newer snapshot, the slot no longer holds the expected item, or the area is gone. Read again |
+| `BUSY` | try again in a moment: their data is arriving here, or this server is saving them (a logout save on its way) or writing another change of theirs |
+| `NO_ROOM` | the add did not fit |
+| `REFUSED` | not allowed (see `Edit`) |
+| `FAILED` | anything else: no saved data, no such area or slot, a count below 1, a section their snapshot lacks, a login refused here, the sync off for an offline player, the server stopping, the database failing or not answering in time |
+
+**Changes made some other way.** A live change to a player's inventory, ender chest, Curios slots, backpacks or danks, by any mod, is caught by the next save: the auto-save (every `storage.autosaveSeconds`, 60 by default) captures all of it and writes when anything differs, and every logout, transfer, death and world save captures it too. Between auto-saves a crash loses it; `saveNow(player)` closes that window.
+
+**Each panel change** writes one log line on the server that made it, `panel: <by> changed <player>'s items ...` with the change; the note "panel: <by>" is kept inside the snapshot (`Note` in the snapshot format; `/invsync snapshots` shows the cause `admin` and, for an offline change, the server of the snapshot it changed). A blank `by` is noted as "staff".
+
+**Known limits** (left as they are, D29 audit): a backpack never opened reads as 0 slots; server ids that differ only by case are the same server (as `sync.networkServers` already treats them, and as Server Utilities does); once an arrival's wait times out (`arrival.timeoutSeconds`), it takes the checkout whatever holds it, so an offline change still being written at that moment can be read past and lost. The stored formats were read from the servers' jars (Curios 5.14.1, Sophisticated Core 1.5.12 with Sophisticated Backpacks 3.26.12, Dank Storage 16) and from the newer ones in the pack folder (Sophisticated Core 1.5.24, Backpacks 3.26.19), which store them the same way.
 
 ## Events
 
@@ -26,7 +89,7 @@ Package `com.mrgregles.bsp_inventorysync.api.event`, posted on `MinecraftForge.E
 
 ## The arrival handshake
 
-A server switch is a logout on the source and a login on the target within the same second. The shared store's presence row is the checkout: a server marks a player online on itself once it has applied their data, and offline only after its last save of them has landed. The target freezes the arriving player and polls the row every tick; the moment the source has released them it takes the row, reads the newest snapshot and applies it. If the source has not released them within `arrival.timeoutSeconds` (10), the last known snapshot is applied and the player told it may be out of date (`arrival.kickOnTimeout = false`), or the login is refused so they can try again (`true`). A player who leaves before the restore is never saved. A player who arrives dead gets their data at the respawn. The login listener runs at `EventPriority.LOWEST` so BSP-Teleport's landing has happened first; the logout listener at `LOWEST` so BSP-Core has taken the carried totems first.
+A server switch is a logout on the source and a login on the target within the same second. The shared store's presence row is the checkout: a server marks a player online on itself once it has applied their data, and offline only after its last save of them has landed. The target freezes the arriving player and polls the row every tick; the moment the source has released them it takes the row, reads the newest snapshot and applies it. Taking the row is one step in the store (`SyncStore.claim`: taken only when nobody else holds it, D29), so a change written to an offline player from another server at that same moment (`/invsync edit` offline, the staff panel) is never read past: the arrival waits for that server's release, then reads the snapshot with the change. A server writing such a change also makes an arrival of that player on itself wait. If the source has not released them within `arrival.timeoutSeconds` (10), the last known snapshot is applied and the player told it may be out of date (`arrival.kickOnTimeout = false`), or the login is refused so they can try again (`true`). A player who leaves before the restore is never saved. A player who arrives dead gets their data at the respawn. The login listener runs at `EventPriority.LOWEST` so BSP-Teleport's landing has happened first; the logout listener at `LOWEST` so BSP-Core has taken the carried totems first.
 
 ## What BSP-InventorySync never syncs
 
@@ -38,7 +101,7 @@ A live Shatter Totem (`bsp_core:shatter_totem` without the `Spent` flag): BSP-Co
 
 `/invsync give <player> <item> [count]` (permission level 2, and the console) gives an item on any server of the network: the item as vanilla `/give` takes it, at most 100 stacks' worth, Shatter Totems and items no snapshot carries refused. What fits goes in at once when the player is on that server and their data has arrived; the rest waits in the store (`SyncStore.addGive`, `gives`, `takeGive`; table `bsp_is_gives`), one row per stack, and the server the player is on hands it over every `give.pollSeconds` and at each arrival, after the restore and its event. A row is removed before its stack is handed over, so it is handed over once. Stacks that do not fit are shown in a three-row chest popup (Deposit, Cancel); a Cancel is kept in the extra blob `give_declined` until the player's next join (an arrival whose snapshot was not saved as a transfer). With the sync off the same rules run on an in-memory store for that server only.
 
-`/invsync edit <player> [word]` (permission level 3) opens the inventory editor for a player online on the same server, or on the newest snapshot of a player who is offline (refused for a player online on another server): a chest screen with Inventory (main, hotbar, armour, offhand), Ender chest and Items tabs over a toolbar (Trash, Cancel, Save). Items come from a creative list (by creative tab, or filtered by the word); nothing changes until Save, then Confirm. Confirm is refused if the player's inventory changed meanwhile (offline: if they came online, or a newer snapshot was saved); with the sync on, the state before is saved (offline: the snapshot it started from) and pinned, and the edit saved as an `admin` snapshot. An offline edit holds the player's checkout while it writes, so a server they join at that moment waits for it. The admin's own inventory is locked, and whatever is on the cursor when the screen closes is dropped. Shatter Totems the player holds can be trashed; the list never offers one. An admin in spectator mode is refused, and an open editor closes (nothing changed) when its admin turns spectator: Minecraft ignores a spectator's clicks in every inventory screen, so the editor would show but never respond.
+`/invsync edit <player> [word]` (permission level 3) opens the inventory editor for a player online on the same server, or on the newest snapshot of a player who is offline (refused for a player online on another server): a chest screen with Inventory (main, hotbar, armour, offhand), Ender chest and Items tabs over a toolbar (Trash, Cancel, Save). Items come from a creative list (by creative tab, or filtered by the word); nothing changes until Save, then Confirm. Confirm is refused if the player's inventory changed meanwhile (offline: if they came online, or a newer snapshot was saved); with the sync on, the state before is saved (offline: the snapshot it started from) and pinned, and the edit saved as an `admin` snapshot. An offline edit claims the player's checkout before it checks the version and holds it while it writes (D29), so a server they join at that moment, this one included, waits for it; it waits for another change of theirs being written on this server and for this server's own save of them, and is saved under the server id of the snapshot it changes (so that server's dank frequencies are renumbered wherever else it is restored). The admin's own inventory is locked, and whatever is on the cursor when the screen closes is dropped. Shatter Totems the player holds can be trashed; the list never offers one. An admin in spectator mode is refused, and an open editor closes (nothing changed) when its admin turns spectator: Minecraft ignores a spectator's clicks in every inventory screen, so the editor would show but never respond.
 
 `/grave` (every player) lists the player's graves on every server, newest first, each with where it is, how old it is and how many stacks it holds; a grave that found no spot, or that nobody opened for `graves.recoverAfterDays` (7), has a [Recover] link that runs `/grave recover <id>` and opens its screen wherever the player is. Put-away graves are not listed.
 
@@ -52,4 +115,4 @@ The `forge` module carries the player's persistent NBT (`ForgeData`) and capabil
 
 ## Snapshot format
 
-One GZIP-compressed NBT compound per snapshot: `{Format: 1, Modules: {<module id>: {...}}, Failed: [<module ids that threw on save>]}`. Module ids: `inventory`, `ender_chest`, `experience`, `game`, `vitals`, `advancements`, `forge`, and when loaded `curios`, `backpacks`, `dank`. An item whose id is not registered on the restoring server becomes a placeholder (a barrier named "Missing item: <id>"; paper before D14, still recognised) carrying the original compound in the tag `bsp_inventorysync:original`; it turns back into the item when saved again and restored where the item exists.
+One GZIP-compressed NBT compound per snapshot: `{Format: 1, Modules: {<module id>: {...}}, Failed: [<module ids that threw on save>], Note: "<who made an admin change>"}` (`Note` only on snapshots of a staff panel change, "panel: <by>"; it is not player data). Module ids: `inventory`, `ender_chest`, `experience`, `game`, `vitals`, `advancements`, `forge`, and when loaded `curios`, `backpacks`, `dank`. An item whose id is not registered on the restoring server becomes a placeholder (a barrier named "Missing item: <id>"; paper before D14, still recognised) carrying the original compound in the tag `bsp_inventorysync:original`; it turns back into the item when saved again and restored where the item exists.

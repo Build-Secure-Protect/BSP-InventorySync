@@ -27,13 +27,60 @@ public final class Curios {
     @Nullable private static final Method GET_INVENTORY;
     @Nullable private static final Method WRITE_TAG;
     @Nullable private static final Method READ_TAG;
+    @Nullable private static final Method GET_CURIOS;
+    @Nullable private static final Method GET_STACKS;
+    @Nullable private static final Method GET_COSMETIC_STACKS;
 
     static {
         Class<?> api = Reflect.type("top.theillusivec4.curios.api.CuriosApi");
         Class<?> handler = Reflect.type("top.theillusivec4.curios.api.type.capability.ICuriosItemHandler");
+        Class<?> stacksHandler = Reflect.type("top.theillusivec4.curios.api.type.inventory.ICurioStacksHandler");
         GET_INVENTORY = Reflect.method(api, "getCuriosInventory", LivingEntity.class);
         WRITE_TAG = Reflect.method(handler, "writeTag");
         READ_TAG = Reflect.method(handler, "readTag", Tag.class);
+        GET_CURIOS = Reflect.method(handler, "getCurios");
+        GET_STACKS = Reflect.method(stacksHandler, "getStacks");
+        GET_COSMETIC_STACKS = Reflect.method(stacksHandler, "getCosmeticStacks");
+    }
+
+    /**
+     * The live stacks of one Curios slot type of an online player (its cosmetic row when {@code cosmetic}),
+     * through Curios' own handler, for a staff change (D29); null without Curios or without that type.
+     */
+    @Nullable
+    public static net.minecraftforge.items.IItemHandlerModifiable liveStacks(ServerPlayer player, String type, boolean cosmetic) {
+        if (!present() || GET_CURIOS == null || GET_STACKS == null || GET_COSMETIC_STACKS == null) {
+            return null;
+        }
+        Object h = handler(player);
+        Object curios = h == null ? null : Reflect.call(GET_CURIOS, h);
+        if (!(curios instanceof java.util.Map<?, ?> map)) {
+            return null;
+        }
+        Object stacks = map.get(type);
+        Object row = stacks == null ? null : Reflect.call(cosmetic ? GET_COSMETIC_STACKS : GET_STACKS, stacks);
+        return row instanceof net.minecraftforge.items.IItemHandlerModifiable m ? m : null;
+    }
+
+    /** Every live Curios stack of the player (worn and cosmetic), for finding a backpack in the back slot. */
+    public static java.util.List<net.minecraft.world.item.ItemStack> liveItems(ServerPlayer player) {
+        java.util.List<net.minecraft.world.item.ItemStack> out = new java.util.ArrayList<>();
+        if (!present() || GET_CURIOS == null) {
+            return out;
+        }
+        Object h = handler(player);
+        Object curios = h == null ? null : Reflect.call(GET_CURIOS, h);
+        if (curios instanceof java.util.Map<?, ?> map) {
+            for (Object type : map.keySet()) {
+                for (boolean cosmetic : new boolean[] {false, true}) {
+                    net.minecraftforge.items.IItemHandlerModifiable row = liveStacks(player, String.valueOf(type), cosmetic);
+                    for (int i = 0; row != null && i < row.getSlots(); i++) {
+                        out.add(row.getStackInSlot(i));
+                    }
+                }
+            }
+        }
+        return out;
     }
 
     private Curios() {}

@@ -70,6 +70,14 @@ public interface SyncStore extends GraveStore {
      */
     CompletableFuture<Void> setPresence(UUID player, String serverId, boolean online);
 
+    /**
+     * Takes the player's checkout for {@code serverId} in one step, and only when no other server holds it:
+     * the player is marked online on {@code serverId} when they are offline, unknown, or already held by
+     * {@code serverId}; otherwise nothing changes. Two servers can never both take it (SU-IS2, D29). Returns
+     * where the player is afterwards: online on {@code serverId} when it worked, else the server holding them.
+     */
+    CompletableFuture<Presence> claim(UUID player, String serverId);
+
     /** Marks offline every player recorded online on {@code serverId} (server start and stop). Returns how many. */
     CompletableFuture<Integer> clearPresence(String serverId);
 

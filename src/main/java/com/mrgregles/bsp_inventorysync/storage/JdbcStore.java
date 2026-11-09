@@ -399,6 +399,38 @@ public final class JdbcStore implements SyncStore {
         });
     }
 
+    /**
+     * One statement decides: the row is taken only while it is offline or already this server's. MySQL applies
+     * the assignments left to right, each seeing the ones before it, so {@code since} and {@code server_id}
+     * test the old row and {@code online} tests the row as it now stands (ours, or still the other server's).
+     * The row is read back on the same connection to say who holds it.
+     */
+    @Override
+    public CompletableFuture<Presence> claim(UUID player, String serverId) {
+        return run(() -> {
+            long now = System.currentTimeMillis();
+            Connection c = conn();
+            try (PreparedStatement ps = c.prepareStatement("INSERT INTO " + players + " (player, online, server_id, since) VALUES (?, 1, ?, ?) ON DUPLICATE KEY UPDATE "
+                    + "since = IF(online = 0 OR server_id = VALUES(server_id), VALUES(since), since), "
+                    + "server_id = IF(online = 0 OR server_id = VALUES(server_id), VALUES(server_id), server_id), "
+                    + "online = IF(online = 0 OR server_id = VALUES(server_id), 1, online)")) {
+                ps.setString(1, player.toString());
+                ps.setString(2, serverId);
+                ps.setLong(3, now);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = c.prepareStatement("SELECT online, server_id, since FROM " + players + " WHERE player = ?")) {
+                ps.setString(1, player.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        throw new SQLException("the claimed row of " + player + " is gone");
+                    }
+                    return new Presence(player, rs.getInt(1) != 0, rs.getString(2), rs.getLong(3));
+                }
+            }
+        });
+    }
+
     @Override
     public CompletableFuture<Integer> clearPresence(String serverId) {
         return run(() -> {

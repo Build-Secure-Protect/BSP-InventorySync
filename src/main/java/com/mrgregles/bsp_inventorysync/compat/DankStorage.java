@@ -52,7 +52,65 @@ public final class DankStorage {
         READ = Reflect.method(inventory, "read", CompoundTag.class);
     }
 
+    @Nullable private static final Method GET_ITEM = Reflect.method(Reflect.type("tfar.dankstorage.inventory.DankInterface"), "getItemDank", int.class);
+    @Nullable private static final Method SET_ITEM = Reflect.method(Reflect.type("tfar.dankstorage.inventory.DankInterface"), "setItemDank", int.class, ItemStack.class);
+    @Nullable private static final Method SIZE = Reflect.method(Reflect.type("tfar.dankstorage.inventory.DankInterface"), "getContainerSizeDank");
+    @Nullable private static final Method LIMIT = Reflect.method(Reflect.type("tfar.dankstorage.inventory.DankInterface"), "getMaxStackSizeSensitive", ItemStack.class);
+    @Nullable private static final Method HAS_GHOST = Reflect.method(Reflect.type("tfar.dankstorage.inventory.DankInterface"), "hasGhostItem", int.class);
+    @Nullable private static final Method GET_GHOST = Reflect.method(Reflect.type("tfar.dankstorage.inventory.DankInterface"), "getGhostItem", int.class);
+    @Nullable private static final Method CHANGED = Reflect.method(Reflect.type("tfar.dankstorage.inventory.DankInterface"), "setChangedDank");
+
     private DankStorage() {}
+
+    /**
+     * The live contents of a dank the online player carries (inventory, ender chest, cursor, as the module
+     * saves them), for a staff change (D29). Dank Storage keeps one inventory object per frequency in the
+     * world's saved data and every open screen uses it, so a change made here is what the player sees.
+     * Null when the mod is absent or no carried dank has that frequency.
+     */
+    @Nullable
+    public static Live live(ServerPlayer player, int frequency) {
+        if (!present() || GET_ITEM == null || SET_ITEM == null || SIZE == null || LIMIT == null || CHANGED == null) {
+            return null;
+        }
+        ItemStack dank = Module.carried(player).get(frequency);
+        Object inv = dank == null ? null : Reflect.call(GET_BAG_INVENTORY, null, dank, player.level());
+        return inv == null ? null : new Live(inv);
+    }
+
+    /** One dank's live inventory. */
+    public static final class Live {
+        private final Object inv;
+
+        private Live(Object inv) {
+            this.inv = inv;
+        }
+
+        public int size() {
+            return Reflect.call(SIZE, inv) instanceof Integer n ? n : 0;
+        }
+
+        public ItemStack get(int slot) {
+            return Reflect.call(GET_ITEM, inv, slot) instanceof ItemStack s ? s : ItemStack.EMPTY;
+        }
+
+        public void set(int slot, ItemStack stack) {
+            Reflect.call(SET_ITEM, inv, slot, stack);
+            Reflect.call(CHANGED, inv);
+        }
+
+        /** How many of this item the slot holds; 0 when the dank refuses it there (its blacklist) or the slot is locked to another item. */
+        public int limit(int slot, ItemStack stack) {
+            if (inv instanceof net.minecraftforge.items.IItemHandler h && !h.isItemValid(slot, stack)) {
+                return 0;
+            }
+            if (HAS_GHOST != null && GET_GHOST != null && Boolean.TRUE.equals(Reflect.call(HAS_GHOST, inv, slot))
+                    && Reflect.call(GET_GHOST, inv, slot) instanceof ItemStack ghost && !ghost.is(stack.getItem())) {
+                return 0;
+            }
+            return Reflect.call(LIMIT, inv, stack) instanceof Integer n ? n : stack.getMaxStackSize();
+        }
+    }
 
     public static boolean present() {
         return ModList.get().isLoaded(MOD_ID) && DANK_ITEM != null && GET_FREQUENCY != null && GET_BAG_INVENTORY != null && ASSIGN_NEXT_ID != null && SAVE != null && READ != null;

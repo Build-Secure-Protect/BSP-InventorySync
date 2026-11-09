@@ -129,6 +129,21 @@ public final class InventorySyncApi {
     }
 
     /**
+     * What one of a player's graves holds (API_VERSION 2, Server Utilities' request SU-IS3): what a return would give back.
+     * {@code id} is the grave's id or its first eight characters. Empty when they have no grave with that id, or it has
+     * been emptied. Network-wide when the sync is on, as {@link #graves}. Read-only: nothing changes, nothing is logged.
+     * Callable from any thread; the future completes on the server thread (never {@code join()} it there), and fails when
+     * graves are off here or the store fails.
+     */
+    public static CompletableFuture<Optional<GraveItems>> graveItems(UUID player, String id) {
+        com.mrgregles.bsp_inventorysync.grave.GraveService s = com.mrgregles.bsp_inventorysync.grave.GraveService.active();
+        if (s == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("graves are off on this server"));
+        }
+        return onServerThread(() -> com.mrgregles.bsp_inventorysync.grave.GraveActions.items(s, player, id == null ? "" : id));
+    }
+
+    /**
      * Returns a grave to its owner (API_VERSION 2, D30), as {@code /invsync grave return} does: into their inventory now
      * when they are on this server (slots as they were, armour worn, backpack and dank contents, the XP; what does not
      * fit stays in the grave, recoverable with {@code /grave}), at their next login on any server when they are offline,

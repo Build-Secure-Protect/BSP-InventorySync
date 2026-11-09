@@ -61,6 +61,9 @@ final class Planner {
         if (SnapshotItems.kind(edit.area()) == null) {
             return Plan.refuse(EditResult.Outcome.FAILED, "There is no area called " + edit.area() + ".");
         }
+        if (SnapshotItems.kind(edit.area()) == com.mrgregles.bsp_inventorysync.api.ItemArea.Kind.GRAVE) {
+            return Plan.refuse(EditResult.Outcome.REFUSED, "A grave is not part of a player's items: it is only read (graveItems) and returned whole (returnGrave).");
+        }
         if (edit instanceof Edit.Remove r && r.expected() == null || edit instanceof Edit.Add a && a.stack() == null) {
             return Plan.refuse(EditResult.Outcome.FAILED, "The change names no item.");
         }

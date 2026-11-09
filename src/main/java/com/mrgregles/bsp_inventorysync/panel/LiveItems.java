@@ -85,16 +85,8 @@ final class LiveItems {
         return list;
     }
 
-    /** What a read may hand out: the stack itself, or for a live totem an inert copy (spent, nothing else of its identity). */
     private static ItemStack shown(ItemStack s) {
-        if (!BspCore.isLiveTotem(s)) {
-            return s;
-        }
-        ItemStack husk = s.copyWithCount(s.getCount());
-        CompoundTag tag = new CompoundTag();
-        tag.putBoolean("Spent", true);
-        husk.setTag(tag);
-        return husk;
+        return SnapshotItems.shown(s);
     }
 
     /** The live slots of an area, or null when the player has no such area now. */
@@ -111,6 +103,7 @@ final class LiveItems {
             case OFFHAND -> new ContainerView(player.getInventory(), 40, 1);
             case ENDER_CHEST -> new ContainerView(player.getEnderChestInventory(), 0, player.getEnderChestInventory().getContainerSize());
             case CURSOR -> new CursorView(player);
+            case GRAVE -> null; // a grave is no area of a player: read-only through graveItems
             case CURIOS, CURIOS_COSMETIC -> {
                 IItemHandlerModifiable h = Curios.liveStacks(player, key, kind == ItemArea.Kind.CURIOS_COSMETIC);
                 yield h == null ? null : new HandlerView(h, false);

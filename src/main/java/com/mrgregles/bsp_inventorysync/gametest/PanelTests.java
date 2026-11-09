@@ -761,6 +761,7 @@ public class PanelTests {
         h.assertTrue(now(panel.edit(id, 0, null, "Mod")).outcome() == Outcome.FAILED, "no change");
         h.assertTrue(now(panel.edit(id, 0, Edit.remove(null, 0, new ItemStack(Items.STONE), 1), "Mod")).outcome() == Outcome.FAILED, "no area");
         h.assertTrue(now(panel.edit(id, 0, Edit.remove("pockets", 0, new ItemStack(Items.STONE), 1), "Mod")).outcome() == Outcome.FAILED, "an unknown area");
+        h.assertTrue(now(panel.edit(id, 0, Edit.remove("grave", 0, new ItemStack(Items.STONE), 1), "Mod")).outcome() == Outcome.REFUSED, "a grave is only read and returned whole (SU-IS3)");
         h.assertTrue(now(panel.edit(id, 0, Edit.remove("inventory", 99, new ItemStack(Items.STONE), 1), "Mod")).outcome() == Outcome.FAILED, "no such slot");
         h.succeed();
     }

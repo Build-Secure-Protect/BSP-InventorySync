@@ -257,6 +257,24 @@ public final class GraveActions {
         return CompletableFuture.completedFuture(new GraveReturn(outcome, message, 0, 0, 0, here));
     }
 
+    /**
+     * What one grave of the player holds (SU-IS3), read-only: empty when they have no grave with that id (its id or first
+     * eight characters) or it has been emptied. Nothing is changed or logged. Server thread.
+     */
+    public static CompletableFuture<Optional<com.mrgregles.bsp_inventorysync.api.GraveItems>> items(GraveService s, UUID owner, String id) {
+        return onServer(s, s.graves(owner), all -> {
+            Optional<Grave> found = byId(all, id);
+            if (found.isEmpty() || !found.get().owner().equals(owner)) {
+                return CompletableFuture.completedFuture(Optional.empty());
+            }
+            Grave g = found.get();
+            GraveContents c = GraveContents.decode(g.data());
+            List<net.minecraft.world.item.ItemStack> stacks = c.entries().stream().map(GraveContents.Entry::stack).toList();
+            return CompletableFuture.completedFuture(Optional.of(new com.mrgregles.bsp_inventorysync.api.GraveItems(
+                    com.mrgregles.bsp_inventorysync.panel.GraveItemsReader.read(stacks, c.extras()), g.xp())));
+        });
+    }
+
     /** Every grave of the player that still holds something, newest death first, as the api lists them (D30). */
     public static CompletableFuture<List<com.mrgregles.bsp_inventorysync.api.GraveInfo>> infos(GraveService s, UUID owner, long now) {
         return onServer(s, s.graves(owner), all -> CompletableFuture.completedFuture(all.stream().filter(g -> !g.empty())

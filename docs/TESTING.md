@@ -382,3 +382,14 @@ With this jar on a test server (graves on):
 - [ ] While you are on server A, run the return on server B: it answers that you are on A.
 - [ ] A grave holding a backpack, returned on another server than the one where you died: the backpack comes back with its contents.
 - [ ] LuckPerms: a player in a group that denies `command.*` cannot see `/grave` until `command.grave` and `command.grave.recover` are set true; a non-operator staff member with `command.invsync` set true can use every `/invsync` subcommand but `edit`; with `command.invsync.reload` (or any other) set false as well, that one is hidden from them.
+
+## 2026-11-09: what a grave holds (SU-IS3)
+
+Covered headlessly (2 new GameTests, 199 in all, run twice): a grave in the network database read by its short id gives its XP and the areas `grave`, then its backpacks (one inside another) and its dank, all read-only; one slot per stack, a live Shatter Totem as a locked inert copy, a missing mod's item named; the backpack in grave slot 3 with its 300 cobblestone, the one inside it placed in the first, the dank in slot 4 with its 2000 dirt; reading changed nothing, not even the grave's clock; by its whole id too, from this server's own data with the sync off; an unknown id, an id of 7 characters, another player's grave and an emptied grave read as empty; an `edit` aimed at `grave` is refused. 6 rules checked broken from a backup: 5 fail their tests; the 6th (the grave area offered for adds) is covered by the rule that a stored read never offers adds there. After the audit (AUD-7, 2026-11-09), 1 more GameTest (200 in all, run twice): the stored contents of a backpack whose item left the grave are not listed, a backpack inside a shulker box in the grave is placed with the box between, a missing mod's item counting 200 in a backpack is named with its count, a totem in a shulker box and one in a backpack's stored contents are locked inert husks and the containers holding them are locked up to the grave slot, reading changes nothing byte for byte; and `read` husks a totem nested in a shulker box, two boxes deep too, live and from a snapshot, leaving the player's own box untouched. 5 more rules checked broken: all 5 fail. Not covered headlessly: `InventorySyncApi.graveItems` itself (it needs a running grave service), real backpacks and danks (the mods are not loaded in the GameTest server).
+
+With this jar on a test server (graves on), through whatever calls the api (Server Utilities' panel):
+
+- [ ] A grave holding a backpack and a dank: the panel lists its stacks, then the backpack's and the dank's contents, matching what a return then gives back.
+- [ ] A grave holding a Shatter Totem (if one can end up there): shown locked; nothing a panel does with the shown copy makes a live totem.
+- [ ] Reading a grave does not count as opening it: its 7-day and 30-day clocks do not restart.
+

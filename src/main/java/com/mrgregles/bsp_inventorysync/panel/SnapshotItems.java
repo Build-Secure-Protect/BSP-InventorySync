@@ -51,6 +51,7 @@ final class SnapshotItems {
     static final String CURIOS_COSMETIC = "curios_cosmetic/";
     static final String BACKPACK = "backpack/";
     static final String DANK = "dank/";
+    static final String GRAVE = "grave";
 
     static final String CONTENTS_UUID = "contentsUuid";
     static final String DANK_FREQUENCY = "dankstorage:frequency";
@@ -93,6 +94,7 @@ final class SnapshotItems {
             case OFFHAND -> ItemArea.Kind.OFFHAND;
             case CURSOR -> ItemArea.Kind.CURSOR;
             case ENDER_CHEST -> ItemArea.Kind.ENDER_CHEST;
+            case GRAVE -> ItemArea.Kind.GRAVE;
             default -> id.startsWith(CURIOS) ? ItemArea.Kind.CURIOS : id.startsWith(CURIOS_COSMETIC) ? ItemArea.Kind.CURIOS_COSMETIC
                     : id.startsWith(BACKPACK) ? ItemArea.Kind.BACKPACK : id.startsWith(DANK) ? ItemArea.Kind.DANK : null;
         };
@@ -154,19 +156,54 @@ final class SnapshotItems {
 
     /** The areas as the api hands them out, with where each backpack and dank sits. */
     static List<ItemArea> read(CompoundTag root, boolean live) {
-        Map<String, Area> areas = areas(root);
+        return toApi(areas(root), live, false, false);
+    }
+
+    /**
+     * What one grave holds (SU-IS3), read-only: the area {@code grave}, one slot per stack (a live Shatter Totem as a locked
+     * inert copy), then the backpacks and danks inside it, from the grave's extras ({@code Packs} and {@code Danks}, the
+     * forms the sync stores them in), each with where it sits.
+     */
+    static List<ItemArea> readGrave(List<ItemStack> stacks, CompoundTag extras) {
+        Map<String, Area> areas = new LinkedHashMap<>();
+        areas.put(GRAVE, new Area(GRAVE, ItemArea.Kind.GRAVE, new GraveView(stacks)));
+        CompoundTag modules = new CompoundTag();
+        CompoundTag packs = new CompoundTag();
+        packs.put("Packs", extras.getList("Packs", Tag.TAG_COMPOUND).copy());
+        modules.put("backpacks", packs);
+        CompoundTag danks = new CompoundTag();
+        danks.put("Danks", extras.getList("Danks", Tag.TAG_COMPOUND).copy());
+        modules.put("dank", danks);
+        CompoundTag root = new CompoundTag();
+        root.put("Modules", modules);
+        areas.putAll(areas(root)); // only backpack and dank areas: the root has no inventory or ender chest
+        return toApi(areas, false, true, true);
+    }
+
+    /**
+     * The areas as the api hands them out. Every slot holding a live Shatter Totem, or an item carrying one anywhere
+     * inside it (a shulker box's contents, a backpack's stored contents), is locked, and its copy is made inert first:
+     * the totem itself becomes a spent husk, and so does every totem nested in the copy's data, so no read ever hands a
+     * live totem out (D29, SU-IS3 audit). {@code onlyReachable}: an area of a backpack or dank no slot leads to (contents
+     * a grave kept after its item was taken) is left out.
+     */
+    private static List<ItemArea> toApi(Map<String, Area> areas, boolean live, boolean readOnly, boolean onlyReachable) {
         Places places = places(areas);
+        Set<String> reachable = onlyReachable ? reachable(areas, places) : areas.keySet();
         List<ItemArea> out = new ArrayList<>();
         for (Area a : areas.values()) {
+            if (!reachable.contains(a.id())) {
+                continue;
+            }
             List<ItemSlot> slots = new ArrayList<>();
             for (int i = 0; i < a.view().size(); i++) {
                 ItemStack stack = a.view().get(i).copy();
                 String missing = ItemCodec.isPlaceholder(stack) ? stack.getTag().getCompound(ItemCodec.ORIGINAL).getString("id") : null;
-                boolean locked = a.view().locked(i) || (!stack.isEmpty() && BspCore.isLiveTotem(stack));
-                slots.add(new ItemSlot(i, stack, missing, locked));
+                boolean locked = a.view().locked(i) || (!stack.isEmpty() && carriesTotem(stack, areas));
+                slots.add(new ItemSlot(i, locked ? inert(stack) : stack, missing, locked));
             }
             boolean linked = places.linked().contains(a.id());
-            out.add(new ItemArea(a.id(), a.kind(), !linked && addable(a.id(), live), !linked, places.places().get(a.id()), slots));
+            out.add(new ItemArea(a.id(), a.kind(), !readOnly && !linked && addable(a.id(), live), !readOnly && !linked, places.places().get(a.id()), slots));
         }
         return out;
     }
@@ -467,6 +504,114 @@ final class SnapshotItems {
         public int limit(int slot, ItemStack stack) {
             return vanillaLimit(slot, stack);
         }
+    }
+
+    /** A grave's stacks, read-only; a live totem shown as its locked inert copy, never handed out live. */
+    static final class GraveView extends NbtView {
+        private final List<ItemStack> shown = new ArrayList<>();
+        private final List<CompoundTag> raw = new ArrayList<>();
+        private final List<Boolean> locked = new ArrayList<>();
+
+        GraveView(List<ItemStack> stacks) {
+            for (ItemStack s : stacks) {
+                boolean totem = BspCore.isLiveTotem(s);
+                ItemStack copy = shown(s);
+                shown.add(copy.copy());
+                raw.add(ItemCodec.save(copy));
+                locked.add(totem);
+            }
+        }
+
+        @Override
+        public int size() {
+            return shown.size();
+        }
+
+        @Nullable
+        @Override
+        CompoundTag raw(int slot) {
+            return slot >= 0 && slot < raw.size() ? raw.get(slot) : null;
+        }
+
+        @Override
+        boolean locked(int slot) {
+            return slot >= 0 && slot < locked.size() && locked.get(slot);
+        }
+
+        @Override
+        public ItemStack get(int slot) {
+            return slot >= 0 && slot < shown.size() ? shown.get(slot) : ItemStack.EMPTY;
+        }
+
+        @Override
+        public void set(int slot, ItemStack stack) {
+            throw new UnsupportedOperationException("a grave is read-only here");
+        }
+
+        @Override
+        public int limit(int slot, ItemStack stack) {
+            return 0;
+        }
+    }
+
+    /**
+     * The areas some slot leads to: the first one (the grave, or a player's own areas, which need no slot) and every
+     * backpack or dank placed in an area already reached, until nothing more is added.
+     */
+    private static Set<String> reachable(Map<String, Area> areas, Places places) {
+        Set<String> in = new HashSet<>();
+        for (Area a : areas.values()) {
+            if (a.kind() != ItemArea.Kind.BACKPACK && a.kind() != ItemArea.Kind.DANK) {
+                in.add(a.id());
+            }
+        }
+        boolean grew = true;
+        while (grew) {
+            grew = false;
+            for (Map.Entry<String, ItemPlace> e : places.places().entrySet()) {
+                if (areas.containsKey(e.getKey()) && !in.contains(e.getKey()) && in.contains(e.getValue().area())) {
+                    in.add(e.getKey());
+                    grew = true;
+                }
+            }
+        }
+        return in;
+    }
+
+    /**
+     * A copy with no live Shatter Totem in it: the stack itself made a spent husk if it is one, and every totem found in
+     * its data (at any depth, a missing mod's item included) replaced by the same husk.
+     */
+    static ItemStack inert(ItemStack stack) {
+        ItemStack out = shown(stack).copy();
+        if (out.hasTag()) {
+            huskNested(out.getTag());
+        }
+        return out;
+    }
+
+    private static void huskNested(Tag tag) {
+        forEachItem(tag, item -> {
+            if (BspCore.isLiveTotem(ItemCodec.load(item.copy()))) {
+                CompoundTag spent = new CompoundTag();
+                spent.putBoolean("Spent", true);
+                item.put("tag", spent);
+            } else if (item.contains("tag", Tag.TAG_COMPOUND)) {
+                huskNested(item.getCompound("tag"));
+            }
+        });
+    }
+
+    /** What a read may hand out: the stack itself, or for a live totem an inert copy (spent, nothing else of its identity). */
+    static ItemStack shown(ItemStack s) {
+        if (!BspCore.isLiveTotem(s)) {
+            return s;
+        }
+        ItemStack husk = s.copyWithCount(s.getCount());
+        CompoundTag tag = new CompoundTag();
+        tag.putBoolean("Spent", true);
+        husk.setTag(tag);
+        return husk;
     }
 
     // ------------------------------------------------------------------ helpers

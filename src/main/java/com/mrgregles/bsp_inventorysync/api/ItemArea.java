@@ -4,7 +4,7 @@ import javax.annotation.Nullable;
 import java.util.List;
 
 /**
- * One group of slots in a {@link PlayerItems}: slot {@code i} of the area is {@code slots().get(i)}, empty
+ * One group of slots in a {@link PlayerItems} or a {@link GraveItems}: slot {@code i} of the area is {@code slots().get(i)}, empty
  * slots included. Area ids, and what {@link #key()} is for each:
  * <ul>
  * <li>{@code inventory}: 36 slots, 0 to 8 the hotbar, 9 to 35 the rest;</li>
@@ -16,19 +16,21 @@ import java.util.List;
  * <li>{@code backpack/<contentsUuid>}: a Sophisticated Backpack's item slots (not its upgrades), the key is the
  * contents id, {@link #place()} where the backpack sits; a backpack never opened has no slots yet (0);</li>
  * <li>{@code dank/<frequency>}: a Dank Storage dank, the key is its frequency on the server the data comes from,
- * {@link #place()} where it sits.</li>
+ * {@link #place()} where it sits;</li>
+ * <li>{@code grave}: what one grave holds ({@link InventorySyncApi#graveItems}), one slot per stack, in the order the grave
+ * keeps them.</li>
  * </ul>
  *
  * @param addable   whether {@link Edit.Add} may put items here: the inventory and the ender chest; backpacks and
  *                  danks too when the read is live (in a snapshot their filters are not known, so they only give
- *                  items up). Armour, offhand, cursor and Curios slots can only be emptied
- * @param removable whether {@link Edit.Remove} may take from here: every area but a linked-storage backpack, whose
- *                  items live in another backpack (read-only)
+ *                  items up). Armour, offhand, cursor and Curios slots can only be emptied; nothing in a {@link GraveItems}
+ * @param removable whether {@link Edit.Remove} may take from here: every area of a {@link PlayerItems} but a
+ *                  linked-storage backpack, whose items live in another backpack (read-only); nothing in a {@link GraveItems}
  * @param place     where a backpack or dank sits; null for the other areas, and for a backpack or dank whose item
  *                  was not found among the player's items
  */
 public record ItemArea(String id, Kind kind, boolean addable, boolean removable, @Nullable ItemPlace place, List<ItemSlot> slots) {
-    public enum Kind { INVENTORY, ARMOR, OFFHAND, CURSOR, ENDER_CHEST, CURIOS, CURIOS_COSMETIC, BACKPACK, DANK }
+    public enum Kind { INVENTORY, ARMOR, OFFHAND, CURSOR, ENDER_CHEST, CURIOS, CURIOS_COSMETIC, BACKPACK, DANK, GRAVE }
 
     public ItemArea {
         slots = List.copyOf(slots);

@@ -1,3 +1,24 @@
+# BSP-InventorySync 0.7.0: staff tools and returning graves
+
+Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. Needed on the client in exactly the server's version: update the modpack together with the servers, and every server together.
+
+## Added
+
+- `/invsync grave return <player> <id>` (operators, and the console): puts a grave that could not be placed, or one put away, back into its owner's inventory, as [Recover] does: every stack to the slot it came from, armour worn again, backpack and dank contents, the experience. What does not fit stays in the grave, recoverable with `/grave`. A player who is offline gets it at their next login, on any server.
+- An api for staff tools such as a web panel: read any player's items (inventory, armour, ender chest, Curios slots, backpacks, danks), add or take items on their own server or on an offline player's saved copy, list a player's graves, see what a grave holds, and return a grave. Shatter Totems are shown but never added or taken.
+
+## Fixed
+
+- A player logging in at the very moment an admin's offline edit was being saved could get their items from before the edit. The edit is now never lost.
+- An offline `/invsync edit` could mix up a dank's contents with another dank's on the editing server.
+- Stacks that did not fit when taking from a grave now keep their backpack and dank contents when recovered on another server.
+
+## LuckPerms
+
+- Every command has a node `command.<its words>`. Players need `command.grave` and `command.grave.recover` where a group denies `command.*`. Setting `command.invsync` true opens every `/invsync` command except `edit`; set the ones staff should not have to false.
+
+---
+
 # BSP-InventorySync 0.6.0: graves you can spot
 
 Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. Needed on the client in exactly the server's version: update the modpack together with the servers.

@@ -4,6 +4,8 @@ All notable changes to BSP-InventorySync are recorded here. The format follows [
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-09
+
 ### Added
 - **An api for staff tools** (Server Utilities' staff web panel, its request SU-IS2), `InventorySyncApi.API_VERSION` 2, documented in `docs/API.md` under "Staff tools":
   - `read(UUID)`: a player's items as areas of slots: inventory, armour, offhand, cursor, ender chest, Curios slots, the item slots of every carried Sophisticated Backpack (with where each sits: "in ender chest", "inside Shulker Box", inside another backpack) and Dank Storage danks. Live for a player on this server, otherwise their newest snapshot, with its version, whether they are online and where. A Shatter Totem is shown locked, as an inert copy (also one inside a shulker box or a backpack's contents, whose container is then locked); a missing mod's item is named; a linked-storage backpack is read-only.

@@ -1,3 +1,18 @@
+# BSP-InventorySync 0.8.0: Compact Machines stay on their home server
+
+Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. Needed on the client in exactly the server's version: update the modpack together with the servers, and every server together.
+
+## Added
+
+- A Compact Machine that has a room now works only on the server where that room is. Its tooltip shows "Room on <server>". Carried to another server it cannot be placed there (whoever or whatever tries: your hand, a Dank in construction mode, a deployer); it stays in your inventory and you are told which server it belongs to. Carried back home it works as before, room and contents untouched. Machines without a room yet work anywhere.
+- `/invsync machine` (operators): shows which server the machine in your hand belongs to; `home <server>` and `clear` change it, for a renamed server or a mistake.
+
+## Changed
+
+- The Personal Shrinking Device's way back out of a room no longer travels between servers (new configs only: add `compactmachines:room_history` to `sync.excludeCapabilities` in existing server configs).
+
+---
+
 # BSP-InventorySync 0.7.0: staff tools and returning graves
 
 Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. Needed on the client in exactly the server's version: update the modpack together with the servers, and every server together.

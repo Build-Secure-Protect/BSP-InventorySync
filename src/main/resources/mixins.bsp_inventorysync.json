@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.mrgregles.bsp_inventorysync.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "bsp_inventorysync.refmap.json",
+  "mixins": [
+    "BlockItemMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

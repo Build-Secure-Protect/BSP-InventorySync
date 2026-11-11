@@ -259,7 +259,9 @@ public final class SyncService {
      * would arrive on the next one without that mod's data, and keep whatever stale copy that server had.
      */
     CompoundTag capture(ServerPlayer player) {
-        return PlayerSnapshotCodec.carryForward(PlayerSnapshotCodec.capture(player), lastSavedTag.get(player.getUUID()));
+        CompoundTag tag = PlayerSnapshotCodec.carryForward(PlayerSnapshotCodec.capture(player), lastSavedTag.get(player.getUUID()));
+        com.mrgregles.bsp_inventorysync.compat.CompactMachines.markTree(tag, com.mrgregles.bsp_inventorysync.compat.CompactMachines.localMark(serverId)); // D31: an unmarked bound machine is this server's
+        return tag;
     }
 
     private CompletableFuture<Snapshot> save(ServerPlayer player, CompoundTag tag, SaveCause cause) {
@@ -335,6 +337,11 @@ public final class SyncService {
                 BSPInventorySync.LOGGER.warn("BSP-InventorySync: sync.networkServers lists \"{}\" but this server's id is \"{}\"; matched ignoring case, but correct the spelling", id, serverId);
             }
         }
+    }
+
+    /** Whether {@code id} is this server or listed in {@code sync.networkServers}, ignoring case (an empty list lists nothing). */
+    public boolean isKnownServer(String id) {
+        return serverId.equalsIgnoreCase(id) || networkServersLower.contains(lower(id));
     }
 
     /** Whether a snapshot saved by {@code source} may be applied here. */
@@ -537,6 +544,8 @@ public final class SyncService {
                 restoreFault = null;
                 throw fault;
             }
+            // D31 5 a: a bound machine saved before the mark existed belongs to the server that saved it
+            com.mrgregles.bsp_inventorysync.compat.CompactMachines.markTree(tag, snapshot.serverId());
             result = PlayerSnapshotCodec.apply(player, tag, new com.mrgregles.bsp_inventorysync.data.RestoreContext(snapshot.serverId(), serverId));
             lastSavedTag.put(player.getUUID(), PlayerSnapshotCodec.withoutNote(tag));
         } finally {

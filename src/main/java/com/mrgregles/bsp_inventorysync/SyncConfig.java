@@ -84,8 +84,9 @@ public final class SyncConfig {
         EXCLUDE_FORGE_DATA = b.comment("Dotted paths in the player's persistent NBT that are not synced (positions that only mean something on one server).",
                         "BSP-Core's four keys below are never synced, even if removed from this list.")
                 .defineListAllowEmpty(List.of("excludeForgeData"), () -> com.mrgregles.bsp_inventorysync.data.Modules.DEFAULT_DATA_EXCLUSIONS, o -> o instanceof String);
-        EXCLUDE_CAPABILITIES = b.comment("Capability ids that are not synced through the generic module. curios:inventory travels through the Curios adapter instead.")
-                .defineListAllowEmpty(List.of("excludeCapabilities"), () -> List.of("curios:inventory"), o -> o instanceof String);
+        EXCLUDE_CAPABILITIES = b.comment("Capability ids that are not synced through the generic module. curios:inventory travels through the Curios adapter instead.",
+                        "compactmachines:room_history (where the Personal Shrinking Device leads back to) names places on one server only.")
+                .defineListAllowEmpty(List.of("excludeCapabilities"), () -> List.of("curios:inventory", "compactmachines:room_history"), o -> o instanceof String);
         NETWORK_SERVERS = b.comment("The server ids (storage.serverId) of every backend of this network. A snapshot saved by any other server",
                         "(a test server or an old world pointed at the same database) is never applied on arrival: the newest snapshot",
                         "from a listed server is used instead. This server's own id always counts. Empty: snapshots from any server are applied.")

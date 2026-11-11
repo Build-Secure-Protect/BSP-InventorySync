@@ -393,3 +393,37 @@ With this jar on a test server (graves on), through whatever calls the api (Serv
 - [ ] A grave holding a Shatter Totem (if one can end up there): shown locked; nothing a panel does with the shown copy makes a live totem.
 - [ ] Reading a grave does not count as opening it: its 7-day and 30-day clocks do not restart.
 
+
+## 2026-11-10: a Compact Machine works only on its home server (D31, CM-1 and CM-2, with the AUD-8 audit fixes)
+
+Covered headlessly (18 new GameTests, 218 in all, run twice; a lodestone stands in for a machine, since the GameTest server has no Compact Machines):
+- **The mark:** an unmarked bound machine takes the server's id and a mark already there is never changed, `room_pos` untouched; unbound machines and other items with a `room_pos` are never marked; a machine in a shulker box, and in a shulker box in a bundle, is marked; nothing is marked with no server id.
+- **Saves and restores:** a logout save marks the machines in the inventory, a shulker box and the ender chest with that server, keeps one marked elsewhere, and another server restores them so; a snapshot saved before the mark gives its machines the server that saved it; machines in Curios- and backpack-shaped data are marked.
+- **Without Compact Machines:** a server without the mod marks nothing with its own id (save, drop, give), while a restore still marks with the snapshot's server.
+- **Refusal at the click:** placing a machine marked for another server is refused at the right click (denied, last of all listeners, so a listener that allows it cannot undo that) and through the real placement path with no place event fired (nothing set and rolled back), the item staying in the hand; the player gets one action-bar line naming the home server and the hand's slot again, and a second click within the second sends the slot but no second line; the offhand and creative are refused too.
+- **Refusal by any route:** past the click, the guard at `BlockItem.place` refuses Dank Storage's route (the selected item's own useOn while the hand holds something else), a call through the stack, and a placer with no player, none firing a place event; the same route places a machine of this server.
+- **Placed when allowed:** a machine is placed on its own server (its id in another case too), unmarked, unbound, and with the sync off.
+- **Drops, gives, graves:** a dropped bound machine (also one in a dropped shulker box) takes this server, one marked elsewhere keeps its mark; a machine given through the network queue carries the giving server's mark; a grave stores its machines marked with the server of the death, and a grave stored unmarked gives them, and a machine in its dank contents, the grave's server; one returned through the real `/invsync grave return` path arrives marked so.
+- **The command:** `/invsync machine` works through the command tree at level 2, not at level 0, and fails cleanly from the console; it shows, sets and clears the mark of a bound machine in hand and refuses other items; setting an id that is neither this server nor listed warns, and a clear says the machine becomes this server's.
+- **Defaults:** `compactmachines:room_history` is excluded by default.
+
+26 rules checked broken from a backup, each failing its own test: the 15 of the first build and the 11 of the audit (the mixin, the place guard, the listener's priority, the once-a-second line, the slot sent again, the give's mark, marking without the mod, the room history default, the unknown-server warning, the clear's reply, the click's denial). Once, not kept in the build: the first build's refusal against the real Compact Machines 6.0.3 jar (deobfuscated into the dev run for that one run): a real `machine_normal` marked for another server was refused at the right click and by the backstop of that build, kept in the hand, the rolled-back placement left no room binding, and at home it was placed and bound to its room.
+
+Not covered headlessly: Compact Machines' own drop and the Personal Shrinking Device, the mixin against the real machine item, the real Dank Storage, Curios, Sophisticated Backpacks and Create (none is loaded in the GameTest server), the tooltip and what the client shows after a refusal (no ghost block or count), two servers.
+
+With this jar on two servers of the network (A and B, Compact Machines on both, the sync on) and on the client, in survival:
+
+- [ ] On A, place a machine, enter it with the Personal Shrinking Device so it has a room, break it. The item's tooltip ends with "Room on A" (your server's id).
+- [ ] Carry it to B (any teleport). Right-click the ground with it: nothing is placed, the machine stays in your hand with the same count, and the action bar says "This Compact Machine's room is on A. It only works there." No ghost block, no ghost count. Hold right-click: the line does not flicker or repeat more than once a second.
+- [ ] The same with the machine in your offhand and the main hand empty.
+- [ ] Right-click a chest on B with the A machine in hand: the chest opens (the refusal line may show as well).
+- [ ] Put the A machine in a Dank Storage, select it in construction mode, right-click the ground on B: nothing is placed, the machine stays in the dank.
+- [ ] Marking inside containers: on A run `/invsync machine clear` on the machine (it is now unmarked), put it in a shulker box (and, separately, in a backpack), save or switch server so A saves you, carry it to B, take it out and try to place it: refused, naming A.
+- [ ] Go back to A: it places, and the Personal Shrinking Device enters your own room with everything in it.
+- [ ] An unbound machine (fresh from crafting) places on B and makes its room there; break it: its tooltip now says "Room on B".
+- [ ] Give a bound machine to another player on A: it places for them on A.
+- [ ] On B, holding the A machine: `/invsync machine` says its room is on A; `/invsync machine home Bx` (a typo) warns that Bx is not a network server; `/invsync machine home A` sets it back quietly.
+- [ ] A Create deployer on B holding the A machine does not place it (it is refused at its own right click; nothing is logged).
+- [ ] Die on A with a bound machine somewhere a grave cannot stand (the void), then on B `/invsync grave return <you> <id>` (or `/grave` [Recover] on B): the machine comes back saying "Room on A".
+- [ ] `/invsync give <you> compactmachines:machine_tiny{room_pos:[I;3,0]}` run on A while you are on B: the machine arrives saying "Room on A".
+- [ ] Each server's `bsp_inventorysync-server.toml`: add `compactmachines:room_history` to `sync.excludeCapabilities` (existing files keep their old list).

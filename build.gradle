@@ -2,6 +2,7 @@ plugins {
     id 'eclipse'
     id 'idea'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.spongepowered.mixin' version '0.7.+'
 }
 
 version = mod_version
@@ -22,6 +23,9 @@ minecraft {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
+            // Mixins with obfuscated names need their reference map remapped in a dev run.
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
 
             mods {
                 "${mod_id}" {
@@ -43,10 +47,19 @@ minecraft {
     }
 }
 
+mixin {
+    add sourceSets.main, "${mod_id}.refmap.json"
+    config "mixins.${mod_id}.json"
+}
+
 repositories {
     // BSP-Core has no published artifact: its built jar is picked up from the sibling repo.
     flatDir { dirs bsp_core_libs }
     mavenCentral()
+    maven {
+        name = 'Sponge'
+        url = 'https://repo.spongepowered.org/repository/maven-public/'
+    }
 }
 
 dependencies {
@@ -54,6 +67,8 @@ dependencies {
 
     // The full jar (not -slim) so dev runs also get the MySQL driver BSP-Core ships.
     implementation fg.deobf("blank:bsp-core:${bsp_core_version}")
+
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -88,6 +103,7 @@ tasks.named('jar', Jar).configure {
                 'Implementation-Version'  : project.jar.archiveVersion,
                 'Implementation-Vendor'   : mod_authors,
                 'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+                'MixinConfigs'            : "mixins.${mod_id}.json"
         ])
     }
     finalizedBy 'reobfJar'
@@ -95,4 +111,26 @@ tasks.named('jar', Jar).configure {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    // The mixin refmap is written by the annotation processor only when the mixin classes are compiled; an incremental
+    // compile that skips them ships a jar without it, and a real server then crashes on start (BSP-Teleport's B13).
+    options.incremental = false
 }
+
+// Fail the build when the jar a server would load has no mixin refmap or the refmap lacks a mixin.
+def checkRefmap = tasks.register('checkRefmap') {
+    dependsOn 'reobfJar'
+    doLast {
+        def jarFile = tasks.named('jar', Jar).get().archiveFile.get().asFile
+        def refmap = zipTree(jarFile).matching { include "${mod_id}.refmap.json" }.files
+        if (refmap.isEmpty()) {
+            throw new GradleException("${jarFile.name} has no ${mod_id}.refmap.json: run ./gradlew clean build")
+        }
+        def text = refmap.iterator().next().text
+        ['BlockItemMixin'].each { name ->
+            if (!text.contains(name)) {
+                throw new GradleException("${mod_id}.refmap.json in ${jarFile.name} has no entry for ${name}")
+            }
+        }
+    }
+}
+tasks.named('build') { dependsOn checkRefmap }

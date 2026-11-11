@@ -232,7 +232,7 @@ public final class GraveAccess {
                 return;
             }
             try {
-                GraveContents.decode(g.data());
+                GraveContents.of(g);
             } catch (RuntimeException e) {
                 BSPInventorySync.LOGGER.error("BSP-InventorySync: grave {} ({}'s) cannot be read: {}", g.shortId(), g.ownerName(), e.toString());
                 refuse(viewer, "This grave cannot be read. An admin can see the server log.", result);
@@ -460,7 +460,7 @@ public final class GraveAccess {
     @Nullable
     static String returnMark(Grave g) {
         try {
-            CompoundTag extras = GraveContents.decode(g.data()).extras();
+            CompoundTag extras = GraveContents.of(g).extras();
             return extras.contains(RETURN_BY, Tag.TAG_STRING) ? extras.getString(RETURN_BY) : null;
         } catch (RuntimeException e) {
             return null;
@@ -477,7 +477,7 @@ public final class GraveAccess {
         if (store == null) {
             return CompletableFuture.completedFuture(false);
         }
-        GraveContents c = GraveContents.decode(g.data());
+        GraveContents c = GraveContents.of(g);
         CompoundTag extras = c.extras().copy();
         extras.putString(RETURN_BY, by);
         return write(store, g.withContents(g.stacks(), g.xp(), new GraveContents(c.entries(), extras).encode(), g.touchedAt())).thenApply(w -> w == Written.YES);
@@ -532,7 +532,7 @@ public final class GraveAccess {
                             + GraveActions.where(g) + "): it is opened where it stands.", 0, 0, 0));
                     return;
                 }
-                GraveContents c = GraveContents.decode(g.data());
+                GraveContents c = GraveContents.of(g);
                 List<Integer> all = new ArrayList<>();
                 for (int i = 0; i < c.entries().size(); i++) {
                     all.add(i);
@@ -668,7 +668,7 @@ public final class GraveAccess {
                 leftover.add(s.copyWithCount(s.getCount() - fit));
             }
         }
-        restoreExtras(p.serverLevel(), fits, GraveContents.decode(g.data()).extras(), g.serverId()); // only for what really goes in
+        restoreExtras(p.serverLevel(), fits, GraveContents.of(g).extras(), g.serverId()); // only for what really goes in
         for (int i = 0; i < fits.size(); i++) {
             ItemStack s = fits.get(i);
             if (where.get(i) >= 0) {

@@ -268,7 +268,7 @@ public final class GraveActions {
                 return CompletableFuture.completedFuture(Optional.empty());
             }
             Grave g = found.get();
-            GraveContents c = GraveContents.decode(g.data());
+            GraveContents c = GraveContents.of(g);
             List<net.minecraft.world.item.ItemStack> stacks = c.entries().stream().map(GraveContents.Entry::stack).toList();
             return CompletableFuture.completedFuture(Optional.of(new com.mrgregles.bsp_inventorysync.api.GraveItems(
                     com.mrgregles.bsp_inventorysync.panel.GraveItemsReader.read(stacks, c.extras()), g.xp())));

@@ -129,6 +129,9 @@ public final class GiveService {
 
     /** As {@link #give(UUID, String, ItemStack, int, String)} with the player on this server given (null: not here); tests. */
     public CompletableFuture<Result> give(@Nullable ServerPlayer online, UUID player, ItemStack item, int count, String by) {
+        item = item.copy();
+        // D31 (AUD-8 3 a): a bound Compact Machine given here is this server's, wherever the row is delivered
+        com.mrgregles.bsp_inventorysync.compat.CompactMachines.mark(item, com.mrgregles.bsp_inventorysync.compat.CompactMachines.localMark(serverId));
         List<ItemStack> stacks = split(item, count);
         int handed = 0;
         List<ItemStack> rest = new ArrayList<>();

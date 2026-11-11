@@ -58,6 +58,7 @@ public final class InvSyncCommands {
                                 .then(Commands.argument("count", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1))
                                         .executes(ctx -> give(ctx, com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "count")))))))
                 .then(Commands.literal("reload").executes(InvSyncCommands::reload))
+                .then(com.mrgregles.bsp_inventorysync.machine.MachineCommands.node())
                 .then(Commands.literal("save").then(Commands.argument("player", GameProfileArgument.gameProfile())
                         .executes(ctx -> withOnlinePlayer(ctx, AdminActions::save))))
                 .then(Commands.literal("resync").then(Commands.argument("player", GameProfileArgument.gameProfile())

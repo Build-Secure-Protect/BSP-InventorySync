@@ -88,7 +88,18 @@ public final class GraveContents {
     }
 
     public static GraveContents decode(byte[] data) {
+        return decode(data, "");
+    }
+
+    /** A grave's contents, a bound Compact Machine without a home mark taking the grave's server as its home (D31 5 a). */
+    public static GraveContents of(com.mrgregles.bsp_inventorysync.storage.Grave grave) {
+        return decode(grave.data(), grave.serverId());
+    }
+
+    /** As {@link #decode(byte[])}, marking unmarked bound machines with {@code home} (none when empty). */
+    public static GraveContents decode(byte[] data, String home) {
         CompoundTag root = PlayerSnapshotCodec.decode(data);
+        com.mrgregles.bsp_inventorysync.compat.CompactMachines.markTree(root, home);
         List<Entry> entries = new ArrayList<>();
         for (Tag t : root.getList(ITEMS, Tag.TAG_COMPOUND)) {
             CompoundTag c = (CompoundTag) t;

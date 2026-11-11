@@ -65,7 +65,7 @@ public final class GraveMenu extends ChestMenu {
         this.blockLevel = blockLevel;
         this.blockPos = blockPos;
         this.grave = grave;
-        this.contents = GraveContents.decode(grave.data());
+        this.contents = GraveContents.of(grave);
         com.mrgregles.bsp_inventorysync.PictureSlots.lock(this, SLOTS);
         draw();
     }
@@ -106,7 +106,7 @@ public final class GraveMenu extends ChestMenu {
     /** Shows the grave as it now is (after a take here or by someone else). */
     void show(Grave now) {
         grave = now;
-        contents = GraveContents.decode(now.data());
+        contents = GraveContents.of(now);
         page = Math.min(page, pages() - 1);
         draw();
         sendAllDataToRemote();

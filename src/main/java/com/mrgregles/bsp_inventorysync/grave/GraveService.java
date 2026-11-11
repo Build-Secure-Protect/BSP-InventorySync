@@ -3,6 +3,7 @@ package com.mrgregles.bsp_inventorysync.grave;
 import com.mrgregles.bsp_inventorysync.BSPInventorySync;
 import com.mrgregles.bsp_inventorysync.SyncConfig;
 import com.mrgregles.bsp_inventorysync.compat.BspCore;
+import com.mrgregles.bsp_inventorysync.compat.CompactMachines;
 import com.mrgregles.bsp_inventorysync.compat.DankStorage;
 import com.mrgregles.bsp_inventorysync.compat.SophisticatedBackpacks;
 import com.mrgregles.bsp_inventorysync.data.ItemRules;
@@ -349,7 +350,9 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
                 continue;
             }
             taken.add(drop);
-            entries.add(new GraveContents.Entry(slotOf(stack, layout, used), stack.copy()));
+            ItemStack kept = stack.copy();
+            CompactMachines.mark(kept, CompactMachines.localMark(serverId())); // D31: a machine bound here keeps its home, wherever the grave is recovered
+            entries.add(new GraveContents.Entry(slotOf(stack, layout, used), kept));
         }
         if (entries.isEmpty()) {
             return null;
@@ -371,7 +374,9 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
             }
         }
         BlockPos where = spot.orElse(deathPos);
-        GraveContents contents = new GraveContents(entries, extras(entries.stream().map(GraveContents.Entry::stack).toList(), level, name));
+        CompoundTag extraData = extras(entries.stream().map(GraveContents.Entry::stack).toList(), level, name);
+        CompactMachines.markTree(extraData, CompactMachines.localMark(serverId())); // machines inside backpacks and danks
+        GraveContents contents = new GraveContents(entries, extraData);
         UUID graveId = UUID.randomUUID();
         boolean placed = spot.isPresent() && placeBlock(graveLevel, where, player.getDirection(), graveId, id, name, now, now + privateMs, sync.get() != null, player.getGameProfile());
         Grave grave = new Grave(graveId, id, name, serverId(), graveLevel.dimension().location().toString(),
@@ -838,7 +843,7 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
     public static String describe(Grave g) {
         try {
             List<String> parts = new ArrayList<>();
-            for (GraveContents.Entry e : GraveContents.decode(g.data()).entries()) {
+            for (GraveContents.Entry e : GraveContents.of(g).entries()) {
                 parts.add(e.stack().getCount() + " " + e.stack().getHoverName().getString());
             }
             return parts.isEmpty() ? "nothing" : String.join(", ", parts);

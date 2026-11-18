@@ -1,3 +1,18 @@
+# BSP-InventorySync 0.8.1: graves stay inside the world border
+
+Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. Needed on the client in exactly the server's version: update the modpack together with the servers, and every server together.
+
+## Fixed
+
+- A grave no longer stands outside the world border or right at its edge, where you could not reach it. Die outside the border or close to it, in any world, and your grave goes to the nearest spot at least 5 blocks inside (on the surface if there is no room at your height). If there is nowhere at all, it is kept safe and you recover it with `/grave` at once.
+- Graves already standing outside the border or too close to it are moved inside when the server starts, looking the same as before. You get one message saying where yours went.
+
+## Added
+
+- `graves.borderMargin` in the server config: how many blocks a grave keeps from the world border (5). BSP-Region Guard's border counts too, in every world, when it is installed.
+
+---
+
 # BSP-InventorySync 0.8.0: Compact Machines stay on their home server
 
 Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. Needed on the client in exactly the server's version: update the modpack together with the servers, and every server together.

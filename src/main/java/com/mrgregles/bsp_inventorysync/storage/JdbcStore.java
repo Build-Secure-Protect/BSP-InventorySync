@@ -620,7 +620,7 @@ public final class JdbcStore implements SyncStore {
     public CompletableFuture<Boolean> updateGrave(Grave g) {
         return run(() -> {
             try (PreparedStatement ps = conn().prepareStatement("UPDATE " + graves + " SET owner = ?, owner_name = ?, placed = ?, touched_at = ?, archived_at = ?, xp = ?, stacks = ?, "
-                    + "data = ?, revision = revision + 1 WHERE id = ? AND revision = ?")) {
+                    + "data = ?, dimension = ?, x = ?, y = ?, z = ?, revision = revision + 1 WHERE id = ? AND revision = ?")) {
                 ps.setString(1, g.owner().toString());
                 ps.setString(2, g.ownerName().length() > 64 ? g.ownerName().substring(0, 64) : g.ownerName());
                 ps.setInt(3, g.placed() ? 1 : 0);
@@ -629,8 +629,12 @@ public final class JdbcStore implements SyncStore {
                 ps.setInt(6, g.xp());
                 ps.setInt(7, g.stacks());
                 ps.setBytes(8, g.data());
-                ps.setString(9, g.id().toString());
-                ps.setLong(10, g.revision());
+                ps.setString(9, g.dimension()); // GB-1: a grave moved inside the world border
+                ps.setInt(10, g.x());
+                ps.setInt(11, g.y());
+                ps.setInt(12, g.z());
+                ps.setString(13, g.id().toString());
+                ps.setLong(14, g.revision());
                 return ps.executeUpdate() > 0;
             }
         });
@@ -653,6 +657,17 @@ public final class JdbcStore implements SyncStore {
             try (PreparedStatement ps = conn().prepareStatement("SELECT " + GRAVE_COLUMNS + " FROM " + graves + " WHERE touched_at < ? ORDER BY touched_at ASC LIMIT ?")) {
                 ps.setLong(1, before);
                 ps.setInt(2, Math.max(0, limit));
+                return graveRows(ps);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<List<Grave>> placedGraves(String serverId) {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("SELECT " + GRAVE_COLUMNS + " FROM " + graves
+                    + " WHERE server_id = ? AND placed = 1 AND archived_at = 0 AND (stacks > 0 OR xp > 0)")) {
+                ps.setString(1, serverId);
                 return graveRows(ps);
             }
         });

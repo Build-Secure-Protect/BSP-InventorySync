@@ -40,6 +40,7 @@ public final class SyncConfig {
     public static final ForgeConfigSpec.BooleanValue KICK_ON_TIMEOUT;
     public static final ForgeConfigSpec.BooleanValue GRAVES_ENABLED;
     public static final ForgeConfigSpec.IntValue GRAVE_SEARCH_RADIUS;
+    public static final ForgeConfigSpec.IntValue GRAVE_BORDER_MARGIN;
     public static final ForgeConfigSpec.IntValue GRAVE_PRIVATE_MINUTES;
     public static final ForgeConfigSpec.IntValue GRAVE_RECOVER_DAYS;
     public static final ForgeConfigSpec.IntValue GRAVE_ARCHIVE_DAYS;
@@ -108,6 +109,9 @@ public final class SyncConfig {
                 .define("enabled", true);
         GRAVE_SEARCH_RADIUS = b.comment("How far from the death spot (in blocks) a dry spot to stand on is looked for, when the spot itself will not do.")
                 .defineInRange("searchRadius", 8, 1, 16);
+        GRAVE_BORDER_MARGIN = b.comment("How many whole blocks a grave keeps between itself and the world border (Minecraft's own and Region Guard's,",
+                        "in every world). A death outside the border or closer than this puts the grave this far inside, at the nearest spot.")
+                .defineInRange("borderMargin", 5, 0, 64);
         GRAVE_PRIVATE_MINUTES = b.comment("For how long after the death only the grave's owner may open it; anyone may after that.")
                 .defineInRange("privateMinutes", 60, 0, 10_080);
         GRAVE_RECOVER_DAYS = b.comment("A grave nobody has opened for this many days can be recovered by its owner from anywhere with /grave (one that found no spot, at once).")

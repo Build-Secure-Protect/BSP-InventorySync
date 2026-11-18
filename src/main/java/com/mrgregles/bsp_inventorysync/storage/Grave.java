@@ -34,6 +34,11 @@ public record Grave(UUID id, UUID owner, String ownerName, String serverId, Stri
         return new Grave(id, owner, ownerName, serverId, dimension, x, y, z, nowPlaced, diedAt, touchedAt, archivedAt, xp, stacks, revision, data);
     }
 
+    /** The same grave standing somewhere else in its world (GB-1: moved inside the world border), placed. */
+    public Grave withPosition(int newX, int newY, int newZ) {
+        return new Grave(id, owner, ownerName, serverId, dimension, newX, newY, newZ, true, diedAt, touchedAt, archivedAt, xp, stacks, revision, data);
+    }
+
     /** As the store holds it after an update: one revision on. */
     public Grave nextRevision() {
         return new Grave(id, owner, ownerName, serverId, dimension, x, y, z, placed, diedAt, touchedAt, archivedAt, xp, stacks, revision + 1, data);

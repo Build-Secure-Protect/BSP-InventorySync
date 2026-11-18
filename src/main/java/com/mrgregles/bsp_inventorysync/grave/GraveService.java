@@ -230,9 +230,11 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
         s.setPrivateMs(SyncConfig.getOr(SyncConfig.GRAVE_PRIVATE_MINUTES, 60) * 60_000L);
         s.setTimes(SyncConfig.getOr(SyncConfig.GRAVE_RECOVER_DAYS, 7) * DAY, SyncConfig.getOr(SyncConfig.GRAVE_ARCHIVE_DAYS, 30) * DAY,
                 SyncConfig.getOr(SyncConfig.GRAVE_DELETE_DAYS, 30) * DAY);
+        GraveBorder.setMargin(SyncConfig.getOr(SyncConfig.GRAVE_BORDER_MARGIN, 5));
         active = s;
         BSPInventorySync.LOGGER.info("BSP-InventorySync: graves on, kept in {}{}", Sync.active() != null ? "the network database" : "this world's own data",
                 Sync.active() != null && world.size() > 0 ? "; " + world.size() + " grave(s) in this world's data are sent to it" : "");
+        s.moveFromBorders(); // GB-1 7 b: graves already standing outside the border or too close to it
     }
 
     public static void stop() {
@@ -362,7 +364,8 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
         BlockPos deathPos = player.blockPosition();
         Set<BlockPos> avoid = totemSpots(level, deathPos);
         ServerLevel graveLevel = level;
-        Optional<BlockPos> spot = GraveSpot.near(level, GraveSpot.grounded(level, deathPos), radius, avoid);
+        boolean atBorder = GraveSpot.nearBorder(level, deathPos);
+        Optional<BlockPos> spot = GraveSpot.nearInside(level, deathPos, radius, avoid); // GB-1: inside the world border, with the margin
         if (spot.isEmpty()) {
             Ground ground = lastGround.get(id);
             ServerLevel groundLevel = ground == null ? null : server.getLevel(ground.dimension());
@@ -393,9 +396,11 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
         }
         drops.removeAll(taken);
         tell(player, grave);
-        BSPInventorySync.LOGGER.info("BSP-InventorySync: grave {} for {}: {} stack(s), {} xp, {}", grave.shortId(), name, grave.stacks(), xp,
+        BSPInventorySync.LOGGER.info("BSP-InventorySync: grave {} for {}: {} stack(s), {} xp, {}{}", grave.shortId(), name, grave.stacks(), xp,
                 grave.placed() ? "at " + where.getX() + " " + where.getY() + " " + where.getZ() + " in " + grave.dimension()
-                        : "no spot near " + deathPos.getX() + " " + deathPos.getY() + " " + deathPos.getZ() + " in " + level.dimension().location() + " (recovered by command)");
+                        : "no spot near " + deathPos.getX() + " " + deathPos.getY() + " " + deathPos.getZ() + " in " + level.dimension().location() + " (recovered by command)",
+                atBorder ? "; they died at " + deathPos.getX() + " " + deathPos.getY() + " " + deathPos.getZ() + ", outside the world border or within "
+                        + GraveBorder.margin() + " blocks of it, so the grave was put inside" : "");
         return grave;
     }
 
@@ -783,6 +788,187 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
             returnInTurn(p, store, marked, i + 1, now, f);
         }));
     }
+    /**
+     * GB-1 7 b (the owner's answer 2026-11-18, and the AUD-9 audit): this server's standing graves that are outside the
+     * world border, or closer to it than {@code graves.borderMargin}, are moved to the nearest spot far enough in, found
+     * as a new death's would be ({@link GraveSpot#nearInside}). Graves are taken from the main store and, on a synced
+     * server, from this world's data while they wait to reach the database. They are moved one at a time, each spot
+     * searched once the grave before has its headstone, so two never share a spot. Each is written at its new place first,
+     * at the revision read (a lost answer is checked by reading the grave back); then the old headstone goes and a new one
+     * stands, keeping its facing, when it becomes public, its network flag and its head. If the spot was taken meanwhile
+     * (a death there), or no spot is found, the grave is kept without a block and can be recovered with /grave at once.
+     * Each owner gets one notice listing their moved graves (an owner offline on a server without the network database is
+     * not told; the log has every move). Runs at the graves' start, so also at {@code /invsync reload}; a grave whose write
+     * was refused is tried again then. Server thread. Completes with how many graves were moved or taken off their spot.
+     */
+    public CompletableFuture<Integer> moveFromBorders() {
+        CompletableFuture<Integer> done = new CompletableFuture<>();
+        String here = serverId();
+        GraveStore main = mainStore();
+        GraveStore waiting = network() != null ? local : null; // graves still on their way to the database
+        CompletableFuture<List<Grave>> fromMain, fromWaiting;
+        try {
+            fromMain = main.placedGraves(here);
+            fromWaiting = waiting == null ? CompletableFuture.completedFuture(List.of()) : waiting.placedGraves(here);
+        } catch (RuntimeException e) {
+            fromMain = CompletableFuture.failedFuture(e);
+            fromWaiting = CompletableFuture.completedFuture(List.of());
+        }
+        CompletableFuture<List<Grave>> w = fromWaiting;
+        access.onServer(fromMain.thenCombine(w, (a, b) -> List.of(a, b)), (both, error) -> {
+            if (error != null) {
+                BSPInventorySync.LOGGER.warn("BSP-InventorySync: the graves standing here could not be read to check them against the world border ({}); "
+                        + "they are checked again at the next start", error.toString());
+                done.complete(0);
+                return;
+            }
+            List<BorderMove> due = new ArrayList<>();
+            Set<UUID> seen = new HashSet<>();
+            for (int i = 0; i < 2; i++) {
+                GraveStore store = i == 0 ? main : waiting;
+                for (Grave g : both.get(i)) {
+                    if (!g.placed() || g.archived() || g.empty() || !g.serverId().equals(here) || !seen.add(g.id())) {
+                        continue;
+                    }
+                    ServerLevel level = levelOf(g.dimension());
+                    if (level != null && GraveSpot.nearBorder(level, new BlockPos(g.x(), g.y(), g.z()))) {
+                        due.add(new BorderMove(store, g, level));
+                    }
+                }
+            }
+            moveInTurn(due, 0, 0, new LinkedHashMap<>(), done);
+        });
+        return done;
+    }
+
+    /** A grave to move inside the border, and the store it is kept in. */
+    private record BorderMove(GraveStore store, Grave grave, ServerLevel level) {}
+
+    private void moveInTurn(List<BorderMove> due, int i, int moved, Map<UUID, List<String>> notices, CompletableFuture<Integer> done) {
+        if (i >= due.size()) {
+            notices.forEach((owner, lines) -> notify(owner, String.join("\n", lines))); // one notice per owner: two at once would overwrite each other
+            done.complete(moved);
+            return;
+        }
+        BorderMove m = due.get(i);
+        CompletableFuture<Boolean> one;
+        try {
+            one = moveInside(m.store(), m.grave(), m.level(), notices);
+        } catch (RuntimeException e) {
+            BSPInventorySync.LOGGER.error("BSP-InventorySync: grave {} ({}'s) could not be moved inside the world border", m.grave().shortId(), m.grave().ownerName(), e);
+            one = CompletableFuture.completedFuture(false);
+        }
+        one.whenComplete((ok, e) -> server.execute(() -> moveInTurn(due, i + 1, moved + (Boolean.TRUE.equals(ok) ? 1 : 0), notices, done)));
+    }
+
+    private CompletableFuture<Boolean> moveInside(GraveStore store, Grave g, ServerLevel level, Map<UUID, List<String>> notices) {
+        BlockPos old = new BlockPos(g.x(), g.y(), g.z());
+        level.getChunk(old); // loaded, so the old headstone is read
+        net.minecraft.core.Direction facing = net.minecraft.core.Direction.NORTH;
+        long publicAt = g.diedAt() + privateMs;
+        boolean networked = network() != null;
+        com.mojang.authlib.GameProfile profile = null;
+        if (level.getBlockEntity(old) instanceof GraveBlockEntity be && g.id().equals(be.graveId())) {
+            net.minecraft.world.level.block.state.BlockState state = level.getBlockState(old);
+            if (state.hasProperty(GraveBlock.FACING)) {
+                facing = state.getValue(GraveBlock.FACING);
+            }
+            publicAt = be.publicAt();
+            networked = be.networked();
+            profile = be.profile();
+        }
+        Optional<BlockPos> spot = GraveSpot.nearInside(level, old, radius, Set.of());
+        Grave moved = spot.map(p -> g.withPosition(p.getX(), p.getY(), p.getZ())).orElse(g.withPlaced(false));
+        String where = old.getX() + " " + old.getY() + " " + old.getZ() + " in " + g.dimension();
+        String server = g.serverId().isEmpty() ? "" : " on " + g.serverId();
+        CompletableFuture<Boolean> f = new CompletableFuture<>();
+        net.minecraft.core.Direction face = facing;
+        long becomesPublic = publicAt;
+        boolean net = networked;
+        com.mojang.authlib.GameProfile head = profile;
+        access.onServer(heldForTests(access.write(store, moved)), (written, err) -> {
+            if (err != null || written == GraveAccess.Written.NO) {
+                BSPInventorySync.LOGGER.warn("BSP-InventorySync: grave {} ({}'s) at {} is outside the world border or within {} blocks of it, but was not moved ({}); "
+                        + "it is tried again at the next start", g.shortId(), g.ownerName(), where, GraveBorder.margin(), err != null ? err.toString() : "it changed meanwhile");
+                f.complete(false);
+                return;
+            }
+            if (written == GraveAccess.Written.UNKNOWN) {
+                BSPInventorySync.LOGGER.warn("BSP-InventorySync: the store did not confirm the move of grave {} ({}'s); it is carried out as written", g.shortId(), g.ownerName());
+            }
+            level.getChunk(old); // again: with a database the answer comes later, and the old chunk may have unloaded meanwhile
+            access.removeBlockOf(g);
+            BlockPos to = spot.orElse(null);
+            // the spot again: a death may have put its grave there while the store answered
+            boolean stands = to != null && GraveSpot.good(level, to, Set.of())
+                    && placeBlock(level, to, face, g.id(), g.owner(), g.ownerName(), g.diedAt(), becomesPublic, net, head);
+            if (stands) {
+                BSPInventorySync.LOGGER.info("BSP-InventorySync: grave {} ({}'s) moved from {} to {} {} {}: it was outside the world border or within {} blocks of it",
+                        g.shortId(), g.ownerName(), where, to.getX(), to.getY(), to.getZ(), GraveBorder.margin());
+                notices.computeIfAbsent(g.owner(), k -> new ArrayList<>()).add("Your grave" + server + " stood at the edge of the world, out of reach, so it was moved to "
+                        + to.getX() + " " + to.getY() + " " + to.getZ() + " in " + dimensionName(g.dimension()) + ".");
+                f.complete(true);
+                return;
+            }
+            Runnable told = () -> {
+                BSPInventorySync.LOGGER.info("BSP-InventorySync: grave {} ({}'s) at {} was outside the world border or within {} blocks of it and {}; "
+                        + "its headstone is gone and it can be recovered with /grave", g.shortId(), g.ownerName(), where, GraveBorder.margin(),
+                        to == null ? "found no spot inside" : "its new spot " + to.getX() + " " + to.getY() + " " + to.getZ() + " was taken meanwhile");
+                notices.computeIfAbsent(g.owner(), k -> new ArrayList<>()).add("Your grave" + server
+                        + " stood at the edge of the world, out of reach. Everything is kept safe: recover it with /grave.");
+                f.complete(true);
+            };
+            if (to == null) {
+                told.run(); // already written without a block
+                return;
+            }
+            // written at a spot where no headstone could stand: kept without a block instead, so /grave recovers it at once
+            access.onServer(access.write(store, moved.nextRevision().withPlaced(false)), (again, err2) -> {
+                if (err2 != null || again != GraveAccess.Written.YES) {
+                    BSPInventorySync.LOGGER.warn("BSP-InventorySync: grave {} ({}'s) is written at {} {} {} where no headstone stands, and could not be marked as having none ({}); "
+                            + "it shows as recoverable while that spot is loaded", g.shortId(), g.ownerName(), to.getX(), to.getY(), to.getZ(),
+                            err2 != null ? err2.toString() : String.valueOf(again));
+                }
+                told.run();
+            });
+        });
+        return f;
+    }
+
+    /**
+     * GameTests only: when set, each answer of a border move's store write waits here until the test runs it, as a
+     * database answering late would ({@code null} in play: answers pass straight through).
+     */
+    @Nullable
+    private static volatile List<Runnable> heldAnswersForTests;
+
+    /** GameTests only: holds border moves' store answers in {@code held} until the test runs them; null to stop. */
+    public static void holdMoveAnswersForTests(@Nullable List<Runnable> held) {
+        heldAnswersForTests = held;
+    }
+
+    private static <T> CompletableFuture<T> heldForTests(CompletableFuture<T> answer) {
+        List<Runnable> held = heldAnswersForTests;
+        if (held == null) {
+            return answer;
+        }
+        CompletableFuture<T> late = new CompletableFuture<>();
+        answer.whenComplete((v, e) -> held.add(() -> {
+            if (e != null) {
+                late.completeExceptionally(e);
+            } else {
+                late.complete(v);
+            }
+        }));
+        return late;
+    }
+
+    @Nullable
+    private ServerLevel levelOf(String dimension) {
+        ResourceLocation dim = ResourceLocation.tryParse(dimension);
+        return dim == null ? null : server.getLevel(ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, dim));
+    }
+
     // ------------------------------------------------------------------ the 30-day rules
 
     /**

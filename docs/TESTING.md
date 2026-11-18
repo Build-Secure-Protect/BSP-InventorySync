@@ -427,3 +427,28 @@ With this jar on two servers of the network (A and B, Compact Machines on both, 
 - [ ] Die on A with a bound machine somewhere a grave cannot stand (the void), then on B `/invsync grave return <you> <id>` (or `/grave` [Recover] on B): the machine comes back saying "Room on A".
 - [ ] `/invsync give <you> compactmachines:machine_tiny{room_pos:[I;3,0]}` run on A while you are on B: the machine arrives saying "Room on A".
 - [ ] Each server's `bsp_inventorysync-server.toml`: add `compactmachines:room_history` to `sync.excludeCapabilities` (existing files keep their old list).
+
+
+## 2026-11-18: graves keep inside the world border (GB-1, with the AUD-9 audit fixes)
+
+Covered headlessly (15 new GameTests, 233 in all, run twice; Region Guard is not in the dev run, so its border is set through `RegionGuard.borderForTests`; each test that sets a border runs in a batch of its own and puts it back):
+- **Minecraft's border:** a death 2 blocks from the edge puts the grave at the nearest spot with 5 whole blocks to the edge; a death 4 blocks past the edge still gets a standing grave, inside with the margin; a dry, free spot on stone 4 blocks from the edge is not a grave's spot, 7 is. A shrinking border counts at the size it is shrinking to.
+- **Region Guard's border**, on its north side: a death 1 block inside puts the grave 5 whole blocks in. With Minecraft's edge far off and Region Guard's close by, Region Guard's decides; when the two do not overlap, Region Guard's alone.
+- **The column's top:** a death past the edge inside solid rock, with no room within the search radius there, puts the grave on top of the nearest column inside. **The Nether:** the same death there, sealed in netherrack, gives a grave with no block, never one on the roof.
+- **Far away:** a death 3,000 blocks past a border, in land nobody had loaded, gets a standing grave at the nearest columns inside.
+- **The margin** follows `graves.borderMargin` (2 in one test); the arithmetic counts whole blocks (half-block edges round inwards, a border too narrow for the margin keeps its middle blocks).
+- **Standing graves:** one too close is moved to the nearest spot far enough in, written at its revision, its old headstone gone, the new one keeping its facing, public time, network flag and head; one far enough in is left alone; a second run moves nothing. The real start (`GraveService.restart`, as at server start and `/invsync reload`) reads the margin again and moves a grave in the End. With the store answering late: two graves headed for one spot each get their own, each headstone holding its own grave; a death that takes the spot meanwhile keeps its headstone and the moved grave is kept without a block. In the Nether, a grave with no spot inside loses its block. On a synced server, graves in the database and one still waiting in the world's data all move, and the owner gets one notice naming all three.
+
+17 rules checked broken from a backup, each failing its own test: the spot rule, the start moved inside, the column-top step, Region Guard's border, the whole-block arithmetic, moving only graves too close, the old headstone removed, the public time kept, the facing kept, the death path using the new search, the new place written; and from the audit: one grave at a time, the spot checked again before placing, the waiting graves included, the shrinking border, the non-overlapping borders, the taken spot written as no block.
+
+Not covered headlessly: MySQL (`updateGrave` now also writes `dimension`, `x`, `y`, `z`; `placedGraves` is a new query); a store answer that is lost (the read-back) and the old chunk loaded again before its headstone is removed (both need a database that answers late or not at all); two notices for one owner at once (the in-memory store cannot race); the real Region Guard api (its 0.6.0 jar on the servers has `RegionGuardApi.regions().border(ServerLevel)`, checked with javap); a linked edge; a real client.
+
+With this jar on a test server with Region Guard, in survival, as an admin with Region Guard's bypass **on** (without it Region Guard moves you back inside before you can die outside; the grave rule ignores bypass). A border is set with `/rg border set <width> [<centerX> <centerZ>]` while standing in that world; `/rg border` shows it.
+
+- [ ] Walk outside the Overworld border and die there (`/kill`). Chat names a grave position inside the border; it stands there, at least 5 blocks from the wall, and opens with a right-click. The log line ends "...so the grave was put inside".
+- [ ] Die 2 blocks inside the edge: the grave is 5 or more blocks in, not where you fell.
+- [ ] The same in the Nether and in the End with Region Guard borders set there: the grave is inside Region Guard's border. In the Nether it is never on the roof.
+- [ ] At an edge linked to another server: die at the edge; walking to the grave does not ask about travelling.
+- [ ] Die far outside the border (100+ blocks) underground: the grave stands at the nearest place inside, on the surface if there is no room at your height.
+- [ ] Before updating, note graves standing outside or next to a border (`/invsync graves <player>` shows where), ideally two of one player close together. After the update and a restart: each stands inside at its own spot, facing the same way with the same head; the owner gets one notice listing them (at once, or within a minute on another server); one log line "moved from ... to ..." each. A grave far from any border is not touched.
+- [ ] `graves.borderMargin = 10` in `bsp_inventorysync-server.toml`, `/invsync reload`, die at the edge: the grave is 10 blocks in.

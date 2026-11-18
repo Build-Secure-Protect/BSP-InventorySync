@@ -330,6 +330,11 @@ public final class FastStore implements SyncStore {
     }
 
     @Override
+    public CompletableFuture<List<Grave>> placedGraves(String serverId) {
+        return inner.placedGraves(serverId);
+    }
+
+    @Override
     public CompletableFuture<Boolean> ping() {
         return inner.ping();
     }

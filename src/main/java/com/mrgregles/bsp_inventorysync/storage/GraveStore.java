@@ -13,7 +13,7 @@ import java.util.concurrent.CompletableFuture;
  * there is left as it is and the answer is false, so sending the same grave twice is harmless.</li>
  * <li>{@link #graves} is every grave of the owner, archived ones included, newest death first.</li>
  * <li>{@link #updateGrave} and {@link #deleteGrave} succeed only when the stored revision is the one given; an
- * update stores the grave one revision on.</li>
+ * update stores the grave one revision on, its place included (dimension and position).</li>
  * <li>{@link #gravesTouchedBefore} is the graves last touched before the time, oldest first, at most {@code limit}.</li>
  * </ul>
  */
@@ -34,4 +34,13 @@ public interface GraveStore {
 
     /** Graves last touched before {@code before}, oldest first, at most {@code limit}: the expiry sweep's work. */
     CompletableFuture<List<Grave>> gravesTouchedBefore(long before, int limit);
+
+    /**
+     * The graves standing on that server: placed, not put away, not emptied (GB-1: those too close to the world border
+     * are moved at the start). This default reads every grave; the database asks for just these.
+     */
+    default CompletableFuture<List<Grave>> placedGraves(String serverId) {
+        return gravesTouchedBefore(Long.MAX_VALUE, Integer.MAX_VALUE).thenApply(all -> all.stream()
+                .filter(g -> g.placed() && !g.archived() && !g.empty() && g.serverId().equals(serverId)).toList());
+    }
 }

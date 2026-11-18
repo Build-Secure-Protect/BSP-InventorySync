@@ -2,7 +2,7 @@
 
 A Forge mod (Minecraft 1.20.1) for the Build Secure Protect (BSP) network, needed on the servers and, in exactly the same version, on every client (for the grave block). It syncs each player's inventory and per-player data between the BSP servers through their shared MySQL database, with BSP-Core's Shatter Totems and BSP-Teleport's server transfers taken into account.
 
-Companion to [BSP-Core](https://github.com/Build-Secure-Protect/BSP-Core), which it requires. BSP-Teleport, Curios, Sophisticated Backpacks and Waystones are optional.
+Companion to [BSP-Core](https://github.com/Build-Secure-Protect/BSP-Core), which it requires. BSP-Teleport, BSP-Region Guard (its world border, for graves), Curios, Sophisticated Backpacks and Waystones are optional.
 
 ## Status
 

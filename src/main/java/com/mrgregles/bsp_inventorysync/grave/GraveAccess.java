@@ -140,7 +140,9 @@ public final class GraveAccess {
 
     private static boolean same(Grave stored, Grave written) {
         return stored.owner().equals(written.owner()) && stored.touchedAt() == written.touchedAt() && stored.xp() == written.xp()
-                && stored.stacks() == written.stacks() && stored.archivedAt() == written.archivedAt() && Arrays.equals(stored.data(), written.data());
+                && stored.stacks() == written.stacks() && stored.archivedAt() == written.archivedAt() && Arrays.equals(stored.data(), written.data())
+                && stored.placed() == written.placed() && stored.dimension().equals(written.dimension()) // GB-1: a border move changes only the place
+                && stored.x() == written.x() && stored.y() == written.y() && stored.z() == written.z();
     }
 
     public boolean mayOpen(UUID viewer, Grave g, long now) {

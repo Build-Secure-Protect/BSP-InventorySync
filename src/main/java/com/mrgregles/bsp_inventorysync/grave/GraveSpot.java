@@ -17,8 +17,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * Where a grave can stand (D25 6b). A good spot is inside the world, in a loaded chunk, free (air, grass,
  * a thin snow layer: what a block placed there would replace), dry (no water or lava in it), on top of
  * something solid, with headroom for the cap (D28: nothing to bump into in the block above, as the cap reaches 3/16
- * into it), and not a spot to avoid (where BSP-Core's dropped Shatter Totem lies, so the totem can
- * always place itself). The search looks outward from the spot, nearest first.
+ * into it), not a spot to avoid (where BSP-Core's dropped Shatter Totem lies, so the totem can
+ * always place itself), and inside the world border with {@code graves.borderMargin} whole blocks to spare
+ * ({@link GraveBorder}, fix GB-1). The search looks outward from the spot, nearest first.
  */
 public final class GraveSpot {
     private static final Map<Integer, List<BlockPos>> OFFSETS = new ConcurrentHashMap<>();
@@ -26,6 +27,14 @@ public final class GraveSpot {
     private GraveSpot() {}
 
     public static boolean good(ServerLevel level, BlockPos pos, Set<BlockPos> avoid) {
+        return good(level, pos, avoid, GraveBorder.of(level));
+    }
+
+    /** As above, with the world's border already read (a search reads it once). */
+    static boolean good(ServerLevel level, BlockPos pos, Set<BlockPos> avoid, com.mrgregles.bsp_inventorysync.compat.RegionGuard.Square border) {
+        if (!GraveBorder.inside(border, pos)) {
+            return false; // GB-1: never outside the border, nor closer to it than graves.borderMargin
+        }
         if (!level.isInWorldBounds(pos) || !level.hasChunkAt(pos) || avoid.contains(pos) || endReserved(level, pos)) {
             return false;
         }
@@ -108,13 +117,56 @@ public final class GraveSpot {
 
     /** The nearest good spot within {@code radius} blocks of {@code centre} (a cube), if any. */
     public static Optional<BlockPos> near(ServerLevel level, BlockPos centre, int radius, Set<BlockPos> avoid) {
+        com.mrgregles.bsp_inventorysync.compat.RegionGuard.Square border = GraveBorder.of(level);
         for (BlockPos offset : offsets(radius)) {
             BlockPos pos = centre.offset(offset);
-            if (good(level, pos, avoid)) {
+            if (good(level, pos, avoid, border)) {
                 return Optional.of(pos);
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Where a grave goes for a death (or a standing grave) at {@code from}: the nearest good spot around it grounded, as
+     * always. When that point is outside the world border or closer to it than {@code graves.borderMargin} (fix GB-1, the
+     * owner's answers 3 a, 4 a, 5 a): the search starts instead at the nearest column far enough in, at the same height
+     * grounded, however far that is (its chunks are loaded); failing that, at the top of that column (not in a world with
+     * a ceiling, the Nether, whose top is its bedrock roof). Empty when nothing will do.
+     */
+    public static Optional<BlockPos> nearInside(ServerLevel level, BlockPos from, int radius, Set<BlockPos> avoid) {
+        com.mrgregles.bsp_inventorysync.compat.RegionGuard.Square border = GraveBorder.of(level);
+        BlockPos start = level.hasChunkAt(from) ? grounded(level, from) : from;
+        if (GraveBorder.inside(border, start)) {
+            return near(level, start, radius, avoid);
+        }
+        BlockPos column = GraveBorder.clampInside(border, from);
+        loadAround(level, column, radius);
+        BlockPos in = grounded(level, column);
+        Optional<BlockPos> spot = near(level, in, radius, avoid);
+        if (spot.isEmpty() && !level.dimensionType().hasCeiling()) {
+            int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ());
+            BlockPos surface = new BlockPos(column.getX(), top, column.getZ());
+            if (!surface.equals(in)) {
+                spot = near(level, surface, radius, avoid);
+            }
+        }
+        return spot;
+    }
+
+    /** Whether a grave at {@code pos} would be outside the border or too close to it (the point {@link #nearInside} moves from). */
+    public static boolean nearBorder(ServerLevel level, BlockPos pos) {
+        return !GraveBorder.inside(GraveBorder.of(level), pos);
+    }
+
+    /** Loads the chunks the search around {@code centre} reaches (a death far outside the border lands where nobody is). */
+    private static void loadAround(ServerLevel level, BlockPos centre, int radius) {
+        int r = Math.max(0, Math.min(radius, 16));
+        for (int cx = (centre.getX() - r) >> 4; cx <= (centre.getX() + r) >> 4; cx++) {
+            for (int cz = (centre.getZ() - r) >> 4; cz <= (centre.getZ() + r) >> 4; cz++) {
+                level.getChunk(cx, cz);
+            }
+        }
     }
 
     /** Every offset in the cube, nearest first; at equal distance the one higher up first (out of a pit rather than into the rock). */

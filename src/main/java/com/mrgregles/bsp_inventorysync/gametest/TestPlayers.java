@@ -27,10 +27,15 @@ final class TestPlayers {
 
     /** The same player again (a login on another server, or a respawn): same id, a new entity. */
     static ServerPlayer mockServerPlayer(GameTestHelper h, UUID uuid) {
+        return mockServerPlayer(h, uuid, h.getLevel());
+    }
+
+    /** A player in another world (the Nether, the End). */
+    static ServerPlayer mockServerPlayer(GameTestHelper h, UUID uuid, net.minecraft.server.level.ServerLevel level) {
         Connection connection = new Connection(PacketFlow.SERVERBOUND);
         new EmbeddedChannel(connection); // registers and activates the handler, which gives the connection its channel
         String name = "is_test_" + (++counter);
-        ServerPlayer player = new ServerPlayer(h.getLevel().getServer(), h.getLevel(), new GameProfile(uuid, name));
+        ServerPlayer player = new ServerPlayer(h.getLevel().getServer(), level, new GameProfile(uuid, name));
         player.connection = new ServerGamePacketListenerImpl(h.getLevel().getServer(), connection, player);
         return player;
     }

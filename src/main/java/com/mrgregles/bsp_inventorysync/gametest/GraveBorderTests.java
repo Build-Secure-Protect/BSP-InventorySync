@@ -448,17 +448,42 @@ public class GraveBorderTests {
         BlockPos box = h.absolutePos(BlockPos.ZERO);
         int edge = box.getX() + 3_000;
         RegionGuard.borderForTests(Level.OVERWORLD, new RegionGuard.Square(-3.0E7, edge, -3.0E7, 3.0E7));
+        ServerLevel level = h.getLevel();
+        java.util.Map<BlockPos, net.minecraft.world.level.block.state.BlockState> was = new java.util.LinkedHashMap<>();
+        BlockPos death = new BlockPos(edge + 10, box.getY() + 1, box.getZ() + 3); // 3,000 blocks away
+        BlockPos column = new BlockPos(edge - 6, death.getY(), death.getZ()); // the nearest column with the margin (5) to spare
         Grave g = null;
+        Grave first;
         try {
-            BlockPos death = new BlockPos(edge + 10, box.getY() + 1, box.getZ() + 3); // 3,000 blocks away, in land nobody has loaded
+            // In land nobody has loaded: the search loads it. What stands there depends on the world's seed (a fresh test
+            // world takes a random one: ocean, rock, hills), so this first grave may have a spot or not; it is kept either way.
+            h.assertTrue(!level.hasChunkAt(column), "the land at " + column + " is not loaded yet");
+            first = die(h, TestPlayers.mockServerPlayer(h), death);
+            h.assertTrue(first != null && level.hasChunkAt(column), "a grave all the same, and the search loaded the land: " + first);
+            h.assertTrue(!first.placed() || first.x() + 1 <= edge - 5, "never outside the border: " + at(first) + ", edge x " + edge);
+            if (first.placed()) {
+                level.setBlock(at(first), Blocks.AIR.defaultBlockState(), 3); // far outside the box: removed by hand
+            }
+
+            // now on ground of its own, the same death gets a standing grave at the nearest columns inside
+            for (int x = edge - 10; x <= edge - 6; x++) {
+                for (int z = death.getZ() - 3; z <= death.getZ() + 3; z++) {
+                    for (int y = death.getY() - 1; y <= death.getY() + 2; y++) {
+                        BlockPos p = new BlockPos(x, y, z);
+                        remember(level, was, p);
+                        level.setBlock(p, y < death.getY() ? Blocks.STONE.defaultBlockState() : Blocks.AIR.defaultBlockState(), 3);
+                    }
+                }
+            }
             g = die(h, TestPlayers.mockServerPlayer(h), death);
             h.assertTrue(g != null && g.placed(), "a standing grave: " + (g == null ? null : at(g)));
             h.assertTrue(g.x() + 1 <= edge - 5 && g.x() >= edge - 6 - 2 && Math.abs(g.z() - death.getZ()) <= 2, "at the nearest columns inside: " + at(g) + ", edge x " + edge);
         } finally {
             RegionGuard.borderForTests(Level.OVERWORLD, null);
-            if (g != null && g.placed()) {
-                h.getLevel().setBlock(at(g), Blocks.AIR.defaultBlockState(), 3); // far outside the box: removed by hand
+            if (g != null && g.placed() && !was.containsKey(at(g))) {
+                level.setBlock(at(g), Blocks.AIR.defaultBlockState(), 3); // outside the ground built for it: removed by hand
             }
+            was.forEach((pos, state) -> level.setBlock(pos, state, 3)); // the land as it was
         }
         h.succeed();
     }

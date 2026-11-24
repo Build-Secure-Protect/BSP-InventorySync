@@ -83,7 +83,7 @@ public final class GraveActions {
     /** The player's graves, put-away and emptied ones left out, newest first. */
     public static CompletableFuture<List<Component>> list(GraveService s, UUID owner, long now) {
         return onServer(s, s.graves(owner), all -> {
-            List<Grave> mine = all.stream().filter(g -> !g.archived() && !g.empty()).toList();
+            List<Grave> mine = all.stream().filter(g -> !g.archived() && !g.empty() && !com.mrgregles.bsp_inventorysync.compat.PlayerReset.forgotten(s.server(), g)).toList();
             List<Component> out = new ArrayList<>();
             if (mine.isEmpty()) {
                 out.add(Component.literal("You have no graves.").withStyle(ChatFormatting.GRAY));
@@ -122,7 +122,7 @@ public final class GraveActions {
      */
     public static CompletableFuture<String> recover(GraveService s, ServerPlayer p, String id, long now) {
         return onServer(s, s.graves(p.getUUID()), all -> {
-            Optional<Grave> found = byId(all.stream().filter(g -> !g.archived()).toList(), id);
+            Optional<Grave> found = byId(all.stream().filter(g -> !g.archived() && !com.mrgregles.bsp_inventorysync.compat.PlayerReset.forgotten(s.server(), g)).toList(), id); // PR18
             if (found.isEmpty()) {
                 return CompletableFuture.completedFuture("No grave of yours has that id: see /grave.");
             }

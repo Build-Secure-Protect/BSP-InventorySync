@@ -212,7 +212,8 @@ public final class GraveAccess {
                 refuse(viewer, "Graves cannot be reached right now. Try again in a moment.", result);
                 return;
             }
-            if (found.isEmpty() || found.get().empty()) {
+            // PR18: a grave from before its owner's reset counts as empty (one whose emptying failed); an admin still opens it
+            if (found.isEmpty() || found.get().empty() || (!admin && com.mrgregles.bsp_inventorysync.compat.PlayerReset.forgotten(server, found.get()))) {
                 if (blockPos != null && blockLevel != null) {
                     removeBlock(server.getLevel(blockLevel), blockPos);
                 }

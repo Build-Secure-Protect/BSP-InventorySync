@@ -169,7 +169,10 @@ public final class AdminActions {
         });
     }
 
-    /** Applies one snapshot by version to an online player (a rollback). */
+    /**
+     * Applies one snapshot by version to an online player (a rollback). The player's {@code bsp_core:ResetAt} stays (PR18): restoring a
+     * snapshot from before a BSP-Core reset is how a mistaken reset is undone, and without the stamp BSP-Core would wipe them again.
+     */
     public static CompletableFuture<List<String>> restore(SyncService service, MinecraftServer server, ServerPlayer player, long version) {
         return service.store().snapshot(player.getUUID(), version).thenCompose(found -> {
             CompletableFuture<List<String>> out = new CompletableFuture<>();
@@ -179,7 +182,14 @@ public final class AdminActions {
                         out.complete(List.of(player.getGameProfile().getName() + " has no snapshot v" + version));
                         return;
                     }
-                    var r = service.restore(player, found.get(), false);
+                    // PR18: the player's reset stamp stays (an undo of a reset is a restore of a snapshot from before it, which has none)
+                    Long stamp = com.mrgregles.bsp_inventorysync.compat.PlayerReset.stamp(player);
+                    SyncService.Restored r;
+                    try {
+                        r = service.restore(player, found.get(), false);
+                    } finally {
+                        com.mrgregles.bsp_inventorysync.compat.PlayerReset.keepStamp(player, stamp);
+                    }
                     String rolled = "rolled " + player.getGameProfile().getName() + " back to v" + r.version() + " (" + found.get().cause().id() + " from " + r.sourceServer() + ")"
                             + (r.modules().failed().isEmpty() ? "" : "; failed modules: " + r.modules().failed());
                     // saved at once as the newest snapshot, so a switch, stop or crash before their next save keeps the rollback

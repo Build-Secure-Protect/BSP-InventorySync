@@ -280,6 +280,10 @@ public final class GiveService {
         List<ItemStack> room = Room.of(p);
         List<Give> fit = new ArrayList<>(), left = new ArrayList<>();
         for (Give g : rows) {
+            if (com.mrgregles.bsp_inventorysync.compat.PlayerReset.forgotten(server, p.getUUID(), p, g.createdAt())) {
+                dropForgotten(p, g); // PR18: given before their reset, and the store still had it: dropped, never handed over
+                continue;
+            }
             (Room.place(room, decode(g)) ? fit : left).add(g);
         }
         if (fit.isEmpty()) {
@@ -299,6 +303,12 @@ public final class GiveService {
                     CompletableFuture<Boolean> take = takes.get(i);
                     if (take.isCompletedExceptionally() || !Boolean.TRUE.equals(take.join())) {
                         continue; // taken by another server, or the store failed (the row stays): not ours to hand over
+                    }
+                    if (com.mrgregles.bsp_inventorysync.compat.PlayerReset.forgotten(server, p.getUUID(), p, g.createdAt())) {
+                        // PR18: the player was reset while the store answered: the stack is forgotten, never put back as a new row
+                        BSPInventorySync.LOGGER.info("BSP-InventorySync: a waiting stack for {} from {} dropped: it was given before their reset: {}",
+                                p.getGameProfile().getName(), g.by(), com.mrgregles.bsp_inventorysync.compat.PlayerReset.describe(g));
+                        continue;
                     }
                     if (!here) {
                         waitAgain(p, g.item(), g.by());
@@ -329,6 +339,19 @@ public final class GiveService {
             }
         }));
         return out;
+    }
+
+    /** PR18: takes a row from before the player's reset out of the store, and logs the stack (gives are in no snapshot). */
+    private void dropForgotten(ServerPlayer p, Give g) {
+        String what = com.mrgregles.bsp_inventorysync.compat.PlayerReset.describe(g);
+        store.takeGive(g.id()).whenComplete((took, e) -> {
+            if (e != null) {
+                BSPInventorySync.LOGGER.warn("BSP-InventorySync: a waiting stack for {} from {}, given before their reset, could not be dropped ({}); it is never handed to them: {}",
+                        p.getGameProfile().getName(), g.by(), e.toString(), what);
+            } else if (Boolean.TRUE.equals(took)) {
+                BSPInventorySync.LOGGER.info("BSP-InventorySync: a waiting stack for {} from {} dropped: it was given before their reset: {}", p.getGameProfile().getName(), g.by(), what);
+            }
+        });
     }
 
     /** Puts a stack taken from the store back as a new row; if even that fails, the log keeps the item so it can be given again. */
@@ -392,7 +415,7 @@ public final class GiveService {
     void decline(ServerPlayer p, int stacks) {
         declined.add(p.getUUID());
         known.add(p.getUUID());
-        store.putExtra(DECLINED, p.getUUID(), new byte[] {1}).whenComplete((v, e) -> {
+        store.putExtra(DECLINED, p.getUUID(), java.nio.ByteBuffer.allocate(8).putLong(System.currentTimeMillis()).array()).whenComplete((v, e) -> {
             if (e != null) {
                 BSPInventorySync.LOGGER.warn("BSP-InventorySync: could not record {}'s Cancel for the other servers: {}", p.getGameProfile().getName(), e.toString());
             }
@@ -435,10 +458,24 @@ public final class GiveService {
         return done;
     }
 
+    /**
+     * PR18: the player was reset. Their Cancel is forgotten here (read again from the store before anything is handed
+     * over); the store's rows are {@code compat.PlayerReset}'s.
+     */
+    public void forget(UUID player) {
+        declined.remove(player);
+        known.remove(player);
+    }
+
     public void loggedOut(UUID player) {
         declined.remove(player);
         known.remove(player);
         busy.remove(player);
+    }
+
+    /** When a Cancel blob was made (ms); 0 for one from before the time was kept in it (PR18 counts it as old). */
+    public static long declinedAt(byte[] blob) {
+        return blob.length == 8 ? java.nio.ByteBuffer.wrap(blob).getLong() : 0;
     }
 
     /** Whether the player cancelled the popup and waits for their next join (tests, status). */

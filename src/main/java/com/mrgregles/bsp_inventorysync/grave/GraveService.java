@@ -541,6 +541,53 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
         heldXp.remove(player);
     }
 
+    /**
+     * PR18: the player was reset. Their graves kept on this server from before {@code cut} are written as empty markers
+     * ({@code emptyData}), as an emptied grave is, so no old copy can bring them back: those riding on their next snapshot
+     * (the marker rides instead) and those in this world's data (every grave without a network, or ones on their way to the
+     * database, which then carry the marker there). Each headstone here goes and each grave is logged with what it held.
+     * Returns how many were emptied. Server thread.
+     */
+    public int forgetLocal(UUID owner, long cut, byte[] emptyData) {
+        int gone = 0;
+        long now = System.currentTimeMillis();
+        List<Grave> riding = pending.get(owner);
+        if (riding != null) {
+            for (int i = 0; i < riding.size(); i++) {
+                Grave g = riding.get(i);
+                if (g.diedAt() <= cut && !g.empty()) {
+                    riding.set(i, g.withContents(0, 0, emptyData, now));
+                    forgotten(g);
+                    gone++;
+                }
+            }
+        }
+        for (Grave g : local.graves(owner).join()) {
+            if (g.owner().equals(owner) && g.diedAt() <= cut && !g.empty() && Boolean.TRUE.equals(local.updateGrave(g.withContents(0, 0, emptyData, now)).join())) {
+                forgotten(g);
+                gone++;
+            }
+        }
+        deaths.remove(owner);
+        heldXp.remove(owner);
+        return gone;
+    }
+
+    private void forgotten(Grave g) {
+        access.removeBlockOf(g);
+        BSPInventorySync.LOGGER.warn("BSP-InventorySync: {}'s grave {} kept on this server emptied at their reset; it held {}{}", g.ownerName(), g.shortId(), describe(g),
+                g.xp() > 0 ? " and " + g.xp() + " xp" : "");
+    }
+
+    /** PR18: removes the grave's headstone if it stands on this server (a reset player's grave, emptied in the database). */
+    public void removeBlock(Grave g) {
+        access.removeBlockOf(g);
+    }
+
+    public MinecraftServer server() {
+        return server;
+    }
+
     public void loggedOut(UUID player) {
         access.loggedOut(player);
         deaths.remove(player);
@@ -753,7 +800,8 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
                     }
                     List<Grave> marked = new ArrayList<>();
                     for (Grave g : all) {
-                        if (!g.empty() && g.owner().equals(p.getUUID()) && GraveAccess.returnMark(g) != null) {
+                        if (!g.empty() && g.owner().equals(p.getUUID()) && GraveAccess.returnMark(g) != null
+                                && !com.mrgregles.bsp_inventorysync.compat.PlayerReset.forgotten(server, p.getUUID(), p, g.diedAt())) { // PR18: never a grave from before their reset
                             marked.add(g);
                         }
                     }

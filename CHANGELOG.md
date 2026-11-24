@@ -4,6 +4,16 @@ All notable changes to BSP-InventorySync are recorded here. The format follows [
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-11-24
+
+### Changed
+- Built against BSP-Core 1.23.0, so the older BSP-Core jars are no longer needed to build it. It still runs with the BSP-Core versions it ran with before.
+
+### Added
+- **A player reset by BSP-Core's `/bsp player reset` starts over here too** (PR18). When BSP-Core resets a player, this mod forgets what it still keeps for them outside their snapshots: the stacks waiting for them from `/invsync give`, their put-off popup (Cancel), their waiting grave notices and grave-return hints, and every grave they own. A grave is emptied (kept as an empty marker, as an emptied grave is, so an old copy cannot bring it back), and its headstone on that server goes once that is written; each grave and stack dropped is logged with what it held. Everything that carries a time (waiting stacks, the Cancel, graves) is forgotten on every server that hears of the reset, but only when it is from before the reset, with 5 seconds of grace for clocks that differ between servers: a server that hears of it late keeps whatever the player has had since. The grave notices and return hints are deleted on the server where the reset was typed. The snapshot history is kept, so an admin can undo a mistaken reset: `/invsync restore <player> <version>` of a snapshot from before the reset, while they are online. Each server keeps the reset time in its world data and also reads BSP-Core's own record and the reset mark the player carries; nothing from before the reset is handed to the player, returned to them, listed by `/grave`, recovered or opened (an admin can still open such a grave). BSP-Core clears the inventory, ender chest and Curios itself. Needs a BSP-Core with the player reset; with an older one nothing changes.
+- A put-off popup (Cancel) now records when it was made.
+- `/invsync restore` keeps the player's BSP-Core reset mark (`bsp_core:ResetAt`) as it is on the live player (the newer of that and the snapshot's), so restoring a snapshot from before a reset undoes it, and BSP-Core does not wipe the player again at their next login.
+
 ## [0.8.2] - 2026-11-24
 
 ### Fixed

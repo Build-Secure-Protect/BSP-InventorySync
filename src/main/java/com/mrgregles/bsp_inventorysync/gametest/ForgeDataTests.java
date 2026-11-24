@@ -89,7 +89,7 @@ public class ForgeDataTests {
     public static void persistent_data_round_trips_and_excluded_paths_stay_local(GameTestHelper h) {
         ServerPlayer p = TestPlayers.mockServerPlayer(h);
         CompoundTag data = p.getPersistentData();
-        data.putString("waystones:known", "spawn,home");
+        data.putString("examplemod:known", "spawn,home");
         data.putInt("starterkit:given", 1);
         CompoundTag persisted = new CompoundTag();
         persisted.putBoolean("bsp_core:TotemGranted", true);
@@ -101,7 +101,7 @@ public class ForgeDataTests {
         CompoundTag out = new CompoundTag();
         m.save(p, out);
         CompoundTag saved = out.getCompound("Data");
-        h.assertTrue(saved.getString("waystones:known").equals("spawn,home") && saved.getInt("starterkit:given") == 1, "mod keys saved");
+        h.assertTrue(saved.getString("examplemod:known").equals("spawn,home") && saved.getInt("starterkit:given") == 1, "mod keys saved");
         CompoundTag savedPersisted = saved.getCompound(Player.PERSISTED_NBT_TAG);
         h.assertTrue(savedPersisted.getBoolean("bsp_core:TotemGranted"), "the grant travels");
         h.assertTrue(!savedPersisted.contains("bsp_core:LastMainDim") && !savedPersisted.contains("bsp_core:LastMainPos"), "the server-local positions are left out: " + savedPersisted);
@@ -116,7 +116,7 @@ public class ForgeDataTests {
         q.getPersistentData().putInt("stale:key", 7);
         m.load(q, out);
         CompoundTag after = q.getPersistentData();
-        h.assertTrue(after.getString("waystones:known").equals("spawn,home") && after.getInt("starterkit:given") == 1, "mod keys applied");
+        h.assertTrue(after.getString("examplemod:known").equals("spawn,home") && after.getInt("starterkit:given") == 1, "mod keys applied");
         h.assertTrue(!after.contains("stale:key"), "keys absent from the snapshot are gone");
         CompoundTag afterPersisted = after.getCompound(Player.PERSISTED_NBT_TAG);
         h.assertTrue(afterPersisted.getBoolean("bsp_core:TotemGranted"), "the grant applied");
@@ -126,6 +126,65 @@ public class ForgeDataTests {
         h.assertTrue(Modules.get(ForgeDataModule.ID) != null, "the generic module is registered");
         CompoundTag snapshot = PlayerSnapshotCodec.capture(p);
         h.assertTrue(PlayerSnapshotCodec.module(snapshot, ForgeDataModule.ID).getCompound("Data").getInt("starterkit:given") == 1, "in the snapshot");
+        h.succeed();
+    }
+
+    /** Waystones' data as Waystones 14.1 keeps it through Balm 7.3: {@code PlayerPersisted.BalmData.WaystonesData}, ids as strings. */
+    private static CompoundTag balmData(String... ids) {
+        CompoundTag waystones = new CompoundTag();
+        net.minecraft.nbt.ListTag list = new net.minecraft.nbt.ListTag();
+        for (String id : ids) {
+            list.add(net.minecraft.nbt.StringTag.valueOf(id));
+        }
+        waystones.put("Waystones", list);
+        waystones.putLong("WarpStoneCooldownUntilUnix", 42L);
+        CompoundTag balm = new CompoundTag();
+        balm.put("WaystonesData", waystones);
+        balm.putInt("othermod:flag", 1); // another Balm mod's key beside it: still synced
+        return balm;
+    }
+
+    private static net.minecraft.nbt.ListTag knownWaystones(ServerPlayer p) {
+        return p.getPersistentData().getCompound(Player.PERSISTED_NBT_TAG).getCompound("BalmData").getCompound("WaystonesData").getList("Waystones", 8);
+    }
+
+    /**
+     * Fix WS-1 (D33): each server keeps its own known waystones. Waystones drops from the list every id its own server
+     * does not have whenever it reads it, so a list carried to another server came back without this server's waystones.
+     * {@code PlayerPersisted.BalmData.WaystonesData} is now always left out, whatever the config lists, and never touched
+     * on load, also when an older snapshot still holds it.
+     */
+    @GameTest(template = EMPTY)
+    public static void known_waystones_stay_on_each_server(GameTestHelper h) {
+        ServerPlayer onA = TestPlayers.mockServerPlayer(h);
+        CompoundTag persistedA = new CompoundTag();
+        persistedA.put("BalmData", balmData("a-1", "a-2"));
+        persistedA.putBoolean("bsp_core:TotemGranted", true);
+        onA.getPersistentData().put(Player.PERSISTED_NBT_TAG, persistedA);
+
+        ForgeDataModule m = module(Modules.withAlwaysExcluded(List.of()), Modules.DEFAULT_CAP_EXCLUSIONS); // a server config listing nothing
+        CompoundTag out = new CompoundTag();
+        m.save(onA, out);
+        CompoundTag savedPersisted = out.getCompound("Data").getCompound(Player.PERSISTED_NBT_TAG);
+        h.assertTrue(!savedPersisted.getCompound("BalmData").contains("WaystonesData"), "the known waystones are not saved: " + savedPersisted);
+        h.assertTrue(savedPersisted.getBoolean("bsp_core:TotemGranted") && savedPersisted.getCompound("BalmData").getInt("othermod:flag") == 1,
+                "the rest of PlayerPersisted and of BalmData still is: " + savedPersisted);
+
+        // a snapshot saved before 0.8.2 still holds A's list; arriving on B, B keeps its own
+        CompoundTag old = new CompoundTag();
+        module(List.of(), Modules.DEFAULT_CAP_EXCLUSIONS).save(onA, old);
+        h.assertTrue(old.getCompound("Data").getCompound(Player.PERSISTED_NBT_TAG).getCompound("BalmData").contains("WaystonesData"), "the old-style snapshot holds the list");
+        ServerPlayer onB = TestPlayers.mockServerPlayer(h);
+        CompoundTag persistedB = new CompoundTag();
+        persistedB.put("BalmData", balmData("b-1"));
+        onB.getPersistentData().put(Player.PERSISTED_NBT_TAG, persistedB);
+        m.load(onB, old);
+        net.minecraft.nbt.ListTag kept = knownWaystones(onB);
+        h.assertTrue(kept.size() == 1 && kept.getString(0).equals("b-1"), "server B keeps its own list: " + kept);
+
+        CompoundTag snapshot = PlayerSnapshotCodec.capture(onA);
+        h.assertTrue(!PlayerSnapshotCodec.module(snapshot, ForgeDataModule.ID).getCompound("Data").getCompound(Player.PERSISTED_NBT_TAG).getCompound("BalmData").contains("WaystonesData"),
+                "nor through the registered module and the config as it is");
         h.succeed();
     }
 

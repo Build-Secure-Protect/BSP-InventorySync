@@ -53,7 +53,7 @@ The generic module is covered headlessly (4 GameTests, 32 in all). **The three a
 - [ ] Put items in a Sophisticated Backpack, put the backpack in the inventory, log out and in: the contents are there. Then a backpack inside a backpack.
 - [ ] Fill a Dank, log out and in on the same server: contents kept, same frequency (no new id). Later, on two servers: the dank arrives full with a new frequency.
 - [ ] Mekanism radiation: get irradiated, log out and in: still irradiated (the generic capability sync).
-- [ ] Waystones: activate a waystone, log out and in: still known. Starter Kit: no second kit on a relog.
+- [ ] Waystones: activate a waystone, log out and in: still known (since 0.8.2 each server keeps its own list: see 2026-11-24). Starter Kit: no second kit on a relog.
 - [ ] The log has no "module ... failed" lines for `forge`, `curios`, `backpacks` or `dank`.
 
 ## 2026-10-18: IS-7 auto-save and the watchdog
@@ -452,3 +452,16 @@ With this jar on a test server with Region Guard, in survival, as an admin with 
 - [ ] Die far outside the border (100+ blocks) underground: the grave stands at the nearest place inside, on the surface if there is no room at your height.
 - [ ] Before updating, note graves standing outside or next to a border (`/invsync graves <player>` shows where), ideally two of one player close together. After the update and a restart: each stands inside at its own spot, facing the same way with the same head; the owner gets one notice listing them (at once, or within a minute on another server); one log line "moved from ... to ..." each. A grave far from any border is not touched.
 - [ ] `graves.borderMargin = 10` in `bsp_inventorysync-server.toml`, `/invsync reload`, die at the edge: the grave is 10 blocks in.
+
+
+## 2026-11-24: each server keeps its own known waystones (WS-1, 0.8.2)
+
+Covered headlessly (1 new GameTest, 234 in all, run twice): `PlayerPersisted.BalmData.WaystonesData` is not saved even with an empty `sync.excludeForgeData`, the rest of `PlayerPersisted` and of `BalmData` still is; a snapshot saved before 0.8.2, still holding the list, leaves the arriving server's own list untouched; the same through the registered module. The test fails without the rule (checked before the fix). Read in Waystones 14.1.21's and Balm 7.3.34's bytecode (the jars on all seven servers), and confirmed on real player files from BSP-Spawn and BSP-Sanctuary: the list is `ForgeData.PlayerPersisted.BalmData.WaystonesData.Waystones` (Waystones goes through Balm's persistent data), and `PersistentPlayerWaystoneData.getWaystones` removes every id its server's `WaystoneManager` does not have, called from the login handler and every use of the list.
+
+Not covered headlessly: the real Waystones mod (not in the dev run), two servers.
+
+With 0.8.2 on two servers (A and B, both with waystones) and the client:
+
+- [ ] On A, activate two waystones. Go to B, activate one there and use it. Back on A: both A waystones are still in the menu.
+- [ ] On B again: B's waystone is still known there.
+- [ ] A warp stone used on A and then on B at once: the cooldown is per server now (expected).

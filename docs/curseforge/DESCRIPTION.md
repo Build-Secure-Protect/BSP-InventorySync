@@ -22,11 +22,11 @@ There is nothing to learn. When you switch servers you are held still for a mome
 - Health, hunger, saturation, air and potion effects.
 - Game mode and flight. Your respawn point (bed or anchor) stays with each server, since each has its own world.
 - Advancements, without earning their rewards twice.
-- Curios slots, Sophisticated Backpacks contents (including backpacks inside backpacks), Dank Storage contents, the waystones you know, Mekanism radiation, and any other mod's per-player data.
+- Curios slots, Sophisticated Backpacks contents (including backpacks inside backpacks), Dank Storage contents, Mekanism radiation, and any other mod's per-player data.
 
 **What stays on each server**
 
-Your Shatter Totem, which BSP-Core carries its own way (see below); statistics and the recipe book.
+Your Shatter Totem, which BSP-Core carries its own way (see below); statistics and the recipe book; the waystones you know, since each server has its own waystones.
 
 **Items from a mod a server lacks**
 

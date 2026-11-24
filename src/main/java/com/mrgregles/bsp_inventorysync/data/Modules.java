@@ -70,13 +70,18 @@ public final class Modules {
      * BSP-Core's keys that stay on the server that wrote them, whatever {@code sync.excludeForgeData} says:
      * its last position in a main dimension and the server that position belongs to (meaningless anywhere
      * else), and the totems it keeps through a death in an Anti Totem zone or on a no-totem server (live
-     * Shatter Totems, which this mod never saves).
+     * Shatter Totems, which this mod never saves). Also Waystones' per-player data (fix WS-1, D33), which it keeps
+     * through Balm's persistent data, {@code PlayerPersisted.BalmData} (checked in Balm 7.3.34 and on real player files): its known
+     * waystones are ids from this server's own waystones, and Waystones drops every id its server does not have
+     * whenever it reads the list, so a list carried to another server came back without this server's waystones.
+     * Each server keeps its own list (and the warp stone and inventory button cooldowns with it).
      */
     public static final List<String> ALWAYS_DATA_EXCLUSIONS = List.of(
             "PlayerPersisted.bsp_core:LastMainDim",
             "PlayerPersisted.bsp_core:LastMainPos",
             "PlayerPersisted.bsp_core:LastMainServer",
-            "PlayerPersisted.bsp_core:ZoneHeldTotems");
+            "PlayerPersisted.bsp_core:ZoneHeldTotems",
+            "PlayerPersisted.BalmData.WaystonesData");
 
     /** The defaults of the exclusion lists, also used while the config is not loaded. */
     public static final List<String> DEFAULT_DATA_EXCLUSIONS = ALWAYS_DATA_EXCLUSIONS;

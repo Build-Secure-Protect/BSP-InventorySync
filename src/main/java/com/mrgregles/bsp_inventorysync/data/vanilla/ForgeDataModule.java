@@ -13,9 +13,9 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * The generic module of D11: the player's persistent NBT ({@code ForgeData}: Waystones' known
- * waystones, Starter Kit's flag, BSP-Core's grants) and the player's capabilities ({@code ForgeCaps}:
- * Mekanism radiation, Compact Machines room history, and whatever else a mod attaches), so every mod
+ * The generic module of D11: the player's persistent NBT ({@code ForgeData}: Starter Kit's flag,
+ * BSP-Core's grants; not Waystones' known waystones, which stay with each server, D33) and the player's
+ * capabilities ({@code ForgeCaps}: Mekanism radiation, and whatever else a mod attaches), so every mod
  * with per-player data is carried without an adapter of its own.
  *
  * <p>Exclusions are dotted paths into {@code ForgeData} (for example {@code PlayerPersisted.bsp_core:LastMainPos},

@@ -83,7 +83,7 @@ public final class SyncConfig {
         b.comment("What travels with the player besides the vanilla data: every mod's persistent NBT (ForgeData) and capabilities (ForgeCaps),",
                 "so mods with per-player data need no special support. List here what must stay on each server.").push("sync");
         EXCLUDE_FORGE_DATA = b.comment("Dotted paths in the player's persistent NBT that are not synced (positions that only mean something on one server).",
-                        "BSP-Core's four keys below are never synced, even if removed from this list.")
+                        "The keys below are never synced, even if removed from this list: BSP-Core's four and Waystones' known waystones (each server has its own).")
                 .defineListAllowEmpty(List.of("excludeForgeData"), () -> com.mrgregles.bsp_inventorysync.data.Modules.DEFAULT_DATA_EXCLUSIONS, o -> o instanceof String);
         EXCLUDE_CAPABILITIES = b.comment("Capability ids that are not synced through the generic module. curios:inventory travels through the Curios adapter instead.",
                         "compactmachines:room_history (where the Personal Shrinking Device leads back to) names places on one server only.")

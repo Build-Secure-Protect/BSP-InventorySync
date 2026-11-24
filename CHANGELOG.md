@@ -4,6 +4,11 @@ All notable changes to BSP-InventorySync are recorded here. The format follows [
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-24
+
+### Fixed
+- **Known waystones no longer disappear after a trip to another server** (WS-1). Waystones keeps each player's known waystones as a list of waystone ids, and drops from it every waystone its own server does not have whenever it reads it (at login, opening the menu, using a waystone, warp stone or scroll). Each server has its own waystones, so a list carried to another server lost all of this server's waystones there, and the sync carried the shortened list back. `PlayerPersisted.BalmData.WaystonesData` (where Waystones keeps it, through Balm) is now always left out of the sync, whatever `sync.excludeForgeData` says, so each server keeps its own list (and the warp stone and inventory button cooldowns with it). Lists already emptied are not rebuilt: a player gets each waystone back by visiting it again.
+
 ## [0.8.1] - 2026-11-18
 
 ### Fixed

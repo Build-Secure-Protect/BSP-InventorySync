@@ -1,3 +1,13 @@
+# BSP-InventorySync 0.8.2: waystones stay known
+
+Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. Needed on the client in exactly the server's version: update the modpack together with the servers, and every server together.
+
+## Fixed
+
+- The waystones you know no longer disappear after visiting another server. Each server now remembers its own waystones for you. Waystones lost before this update come back when you visit them again.
+
+---
+
 # BSP-InventorySync 0.8.1: graves stay inside the world border
 
 Minecraft 1.20.1, Forge 47.4. Requires BSP-Core 1.1.0 or newer. Needed on the client in exactly the server's version: update the modpack together with the servers, and every server together.

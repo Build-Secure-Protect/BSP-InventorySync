@@ -96,7 +96,7 @@ A server switch is a logout on the source and a login on the target within the s
 
 ## What BSP-InventorySync never syncs
 
-A live Shatter Totem (`bsp_core:shatter_totem` without the `Spent` flag): BSP-Core places or stores it itself when the player leaves. A totem found on the player at restore time (handed back by BSP-Core a few ticks after login) is kept and put back through BSP-Core's own hand-back, never dropped. Statistics and the recipe book are not synced (design decision D3).
+A live Shatter Totem (`bsp_core:shatter_totem` without the `Spent` flag): BSP-Core places or stores it itself when the player leaves. A totem found on the player at restore time (handed back by BSP-Core a few ticks after login) is kept and put back through BSP-Core's own hand-back, never dropped. Statistics and the recipe book are not synced (design decision D3). The respawn point (D16) and Waystones' known waystones (D33) stay with each server.
 
 ## Operator commands
 
@@ -130,7 +130,7 @@ Compact Machines 6.0.3 names a bound machine's room by its chunk position alone 
 
 ## What travels besides the vanilla data
 
-The `forge` module carries the player's persistent NBT (`ForgeData`) and capabilities (`ForgeCaps`), so a mod's per-player data needs no adapter unless it lives outside the player (world saved data). Paths and capability ids listed in the server config (`sync.excludeForgeData`, `sync.excludeCapabilities`) are neither saved nor overwritten; BSP-Core's `PlayerPersisted.bsp_core:LastMainDim`, `LastMainPos`, `LastMainServer` and `ZoneHeldTotems` are always excluded, whatever the list says; the defaults also exclude the Curios inventory (carried by the Curios adapter instead) and Compact Machines' `compactmachines:room_history` (places on one server). Adapters exist for Curios, Sophisticated Backpacks (contents by `contentsUuid`) and Dank Storage (contents by frequency, remapped on arrival from another server); each registers only when its mod is loaded. A mod whose per-player data lives in world saved data should register a `DataModule` of its own.
+The `forge` module carries the player's persistent NBT (`ForgeData`) and capabilities (`ForgeCaps`), so a mod's per-player data needs no adapter unless it lives outside the player (world saved data). Paths and capability ids listed in the server config (`sync.excludeForgeData`, `sync.excludeCapabilities`) are neither saved nor overwritten; BSP-Core's `PlayerPersisted.bsp_core:LastMainDim`, `LastMainPos`, `LastMainServer` and `ZoneHeldTotems` are always excluded, whatever the list says, and so is Waystones' `PlayerPersisted.BalmData.WaystonesData` (its known waystones and cooldowns; fix WS-1: each server keeps its own list, since Waystones drops every waystone its own server does not have whenever it reads the list); the defaults also exclude the Curios inventory (carried by the Curios adapter instead) and Compact Machines' `compactmachines:room_history` (places on one server). Adapters exist for Curios, Sophisticated Backpacks (contents by `contentsUuid`) and Dank Storage (contents by frequency, remapped on arrival from another server); each registers only when its mod is loaded. A mod whose per-player data lives in world saved data should register a `DataModule` of its own.
 
 ## Snapshot format
 

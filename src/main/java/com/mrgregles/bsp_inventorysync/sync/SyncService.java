@@ -531,11 +531,24 @@ public final class SyncService {
      * {@link InventoryRestoredEvent}. Server thread.
      */
     public Restored restore(ServerPlayer player, Snapshot snapshot, boolean fallback) {
-        return restore(player, snapshot, PlayerSnapshotCodec.decode(snapshot.data()), fallback);
+        return restore(player, snapshot, PlayerSnapshotCodec.decode(snapshot.data()), fallback, null);
+    }
+
+    /**
+     * As {@link #restore(ServerPlayer, Snapshot, boolean)}, running {@code beforeEvent} once the snapshot is applied and before
+     * {@link InventoryRestoredEvent} is posted (an admin's restore puts BSP-Core's reset stamps back there, so BSP-Core's listener
+     * of the event sees them).
+     */
+    public Restored restore(ServerPlayer player, Snapshot snapshot, boolean fallback, @Nullable Runnable beforeEvent) {
+        return restore(player, snapshot, PlayerSnapshotCodec.decode(snapshot.data()), fallback, beforeEvent);
     }
 
     /** As {@link #restore(ServerPlayer, Snapshot, boolean)} with the snapshot already decompressed. */
     public Restored restore(ServerPlayer player, Snapshot snapshot, CompoundTag tag, boolean fallback) {
+        return restore(player, snapshot, tag, fallback, null);
+    }
+
+    private Restored restore(ServerPlayer player, Snapshot snapshot, CompoundTag tag, boolean fallback, @Nullable Runnable beforeEvent) {
         List<ItemStack> totems = BspCore.takeLiveTotems(player);
         PlayerSnapshotCodec.Result result;
         try {
@@ -555,6 +568,9 @@ public final class SyncService {
         }
         if (!totems.isEmpty()) {
             BSPInventorySync.LOGGER.info("BSP-InventorySync: {} held {} totem(s) during the restore; given back", player.getGameProfile().getName(), totems.size());
+        }
+        if (beforeEvent != null) {
+            beforeEvent.run();
         }
         postRestored(new InventoryRestoredEvent(player, snapshot.version(), snapshot.serverId(), fallback, result.failed(), totems.size()));
         return new Restored(snapshot.version(), snapshot.serverId(), result, totems.size());

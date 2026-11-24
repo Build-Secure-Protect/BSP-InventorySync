@@ -64,8 +64,8 @@ public final class PlayerReset {
     /** How much earlier than the reset something must be to count as before it: servers' clocks differ by a few seconds. */
     public static final long GRACE_MS = 5_000;
     private static final String RESET_AT = "bsp_core:ResetAt";
-    private static final int MARK_TRIES = 3;
-    private static final byte[] EMPTY_DATA = new GraveContents(List.of(), new CompoundTag()).encode();
+    static final int MARK_TRIES = 3;
+    static final byte[] EMPTY_DATA = new GraveContents(List.of(), new CompoundTag()).encode();
 
     /** Per player, the newest reset whose network extras this server has deleted (the origin only): a repeat leaves them. */
     private static final Map<UUID, Long> CLEARED = new ConcurrentHashMap<>();
@@ -165,10 +165,16 @@ public final class PlayerReset {
 
     // ------------------------------------------------------------------ the gate
 
-    /** This server's own record of the resets it has heard of: the newest per player, in its world data. */
+    /**
+     * This server's own record of the resets it has heard of: the newest per player, and the newest season reset (SR10, every
+     * player at once: {@code compat.SeasonReset}), in its world data.
+     */
     public static final class Gate extends SavedData {
         public static final String NAME = BSPInventorySync.MODID + "_player_resets";
+        /** The key of the season reset's time; not a player id, so a version from before it skips it. */
+        static final String SEASON_KEY = "season_reset";
         private final Map<UUID, Long> resets = new HashMap<>();
+        private long season;
 
         public static Gate get(MinecraftServer server) {
             return server.overworld().getDataStorage().computeIfAbsent(Gate::load, Gate::new, NAME);
@@ -176,7 +182,11 @@ public final class PlayerReset {
 
         public static Gate load(CompoundTag tag) {
             Gate g = new Gate();
+            g.season = tag.getLong(SEASON_KEY);
             for (String key : tag.getAllKeys()) {
+                if (key.equals(SEASON_KEY)) {
+                    continue;
+                }
                 try {
                     g.resets.put(UUID.fromString(key), tag.getLong(key));
                 } catch (IllegalArgumentException ignored) {
@@ -189,6 +199,9 @@ public final class PlayerReset {
         @Override
         public CompoundTag save(CompoundTag tag) {
             resets.forEach((id, at) -> tag.putLong(id.toString(), at));
+            if (season > 0) {
+                tag.putLong(SEASON_KEY, season);
+            }
             return tag;
         }
 
@@ -204,6 +217,24 @@ public final class PlayerReset {
             }
         }
 
+        /** The newest season reset this server has heard of (ms), 0 when none: it counts as a reset of every player. */
+        public long seasonAt() {
+            return season;
+        }
+
+        public void noteSeason(long resetMs) {
+            if (season < resetMs) {
+                season = resetMs;
+                setDirty();
+            }
+        }
+
+        /** GameTests: sets the season reset's time back (a test puts back what it found). */
+        public void setSeasonForTests(long resetMs) {
+            season = resetMs;
+            setDirty();
+        }
+
         /** GameTests: forgets the player. */
         public void remove(UUID player) {
             if (resets.remove(player) != null) {
@@ -213,11 +244,13 @@ public final class PlayerReset {
     }
 
     /**
-     * The newest reset of the player this server knows of (0 when none): its own record, BSP-Core's (by reflection, when it
-     * has one) and the {@code bsp_core:ResetAt} the player carries when they are here ({@code entity}). Server thread.
+     * The newest reset of the player this server knows of (0 when none): its own record, the newest season reset it heard of
+     * (SR10: a reset of every player), BSP-Core's record (by reflection, when it has one) and the {@code bsp_core:ResetAt} the
+     * player carries when they are here ({@code entity}). Server thread.
      */
     public static long resetAt(MinecraftServer server, UUID player, @Nullable Player entity) {
-        long at = Gate.get(server).resetAt(player);
+        Gate gate = Gate.get(server);
+        long at = Math.max(gate.resetAt(player), gate.seasonAt());
         if (LEDGER_GET != null && LEDGER_LATEST != null && ROW_RESET_MS != null) {
             try {
                 Object row = LEDGER_LATEST.invoke(LEDGER_GET.invoke(null, server), player);
@@ -365,7 +398,7 @@ public final class PlayerReset {
     }
 
     /** Removes the player's Cancel when it was made before the cut (one without a time, from before this rule, counts as old). */
-    private static CompletableFuture<Integer> dropDeclined(SyncStore store, UUID player, long cut, boolean[] failed) {
+    static CompletableFuture<Integer> dropDeclined(SyncStore store, UUID player, long cut, boolean[] failed) {
         return safe(() -> store.extra(GiveService.DECLINED, player)).thenCompose(found -> {
             if (found.isEmpty() || GiveService.declinedAt(found.get()) > cut) {
                 return CompletableFuture.completedFuture(0);
@@ -378,7 +411,7 @@ public final class PlayerReset {
         });
     }
 
-    private static CompletableFuture<Integer> dropExtra(SyncStore store, String kind, UUID player, boolean[] failed) {
+    static CompletableFuture<Integer> dropExtra(SyncStore store, String kind, UUID player, boolean[] failed) {
         return safe(() -> store.deleteExtra(kind, player)).handle((gone, e) -> {
             if (e != null) {
                 BSPInventorySync.LOGGER.warn("BSP-InventorySync: {} of {} was not deleted at their reset: {}", kind, player, e.toString());
@@ -389,7 +422,7 @@ public final class PlayerReset {
         });
     }
 
-    private enum Mark { MARKED, GONE, FAILED }
+    enum Mark { MARKED, GONE, FAILED }
 
     /** Writes the player's graves from before the cut in the network store as empty markers; each headstone here goes once its write is confirmed. */
     private static CompletableFuture<Integer> markGraves(MinecraftServer server, GraveStore network, @Nullable GraveService graves, UUID player, String name, long cut,
@@ -434,7 +467,7 @@ public final class PlayerReset {
     }
 
     /** One grave as an empty marker, at the revision read; a changed grave is read again and tried again, a lost answer checked by reading back. */
-    private static CompletableFuture<Mark> mark(GraveStore store, Grave g, long cut, int tries) {
+    static CompletableFuture<Mark> mark(GraveStore store, Grave g, long cut, int tries) {
         Grave marker = g.withContents(0, 0, EMPTY_DATA, System.currentTimeMillis());
         return safe(() -> store.updateGrave(marker)).handle((ok, e) -> e == null && Boolean.TRUE.equals(ok)).thenCompose(ok -> {
             if (ok) {
@@ -470,7 +503,7 @@ public final class PlayerReset {
         }
     }
 
-    private static <T> CompletableFuture<T> safe(Supplier<CompletableFuture<T>> call) {
+    static <T> CompletableFuture<T> safe(Supplier<CompletableFuture<T>> call) {
         try {
             return call.get();
         } catch (RuntimeException e) {
@@ -478,12 +511,12 @@ public final class PlayerReset {
         }
     }
 
-    private static CompletableFuture<Integer> sum(List<CompletableFuture<Integer>> each) {
+    static CompletableFuture<Integer> sum(List<CompletableFuture<Integer>> each) {
         return CompletableFuture.allOf(each.toArray(CompletableFuture[]::new)).thenApply(v -> each.stream().mapToInt(CompletableFuture::join).sum());
     }
 
     /** Runs {@code step} on the server thread: at once when already there, else at the next task. */
-    private static <T> CompletableFuture<T> onServer(MinecraftServer server, Supplier<T> step) {
+    static <T> CompletableFuture<T> onServer(MinecraftServer server, Supplier<T> step) {
         if (server.isSameThread()) {
             try {
                 return CompletableFuture.completedFuture(step.get());

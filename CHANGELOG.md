@@ -4,6 +4,16 @@ All notable changes to BSP-InventorySync are recorded here. The format follows [
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-11-24
+
+### Added
+- **BSP-Core's season reset starts every player over here too** (SR10). When BSP-Core's `/bsp season reset` ends the season and starts everyone over, this mod forgets what it still keeps for any player outside their snapshots: every stack waiting from `/invsync give`, every put-off popup (Cancel), every waiting grave notice and grave-return hint, and every grave (an admin's return queued on a grave goes with it). As for a player reset, a grave is emptied and kept as an empty marker, its headstone goes once that is written, and each grave and stack dropped is logged with what it held. Only what is from before the reset goes (with the same 5 seconds of grace), using the reset time BSP-Core gives with the event, the same on every server, so a server that hears of it late keeps whatever came after; a server that hears of it without a time forgets nothing and logs an error. The grave notices and return hints, which carry no time, go only the first time the reset is heard. The database is changed only by the server where the reset was typed; every server forgets its own copies (graves kept in its world data or on their way to the database, the popups it remembers) and takes down the headstones of old graves standing in its loaded chunks. Each server keeps the reset time in its world data, and nothing from before it is handed to anyone, returned, listed by `/grave`, recovered or opened (an admin can still open such a grave). Every snapshot is kept, so an admin can undo the reset for one player with `/invsync restore <player> <version>` of a snapshot from before it, while they are online. BSP-Core wipes what each player carries at their next login, after this mod's restore. Needs a BSP-Core with the season reset; with an older one nothing changes.
+- `/invsync restore` also keeps the player's BSP-Core season reset mark (`bsp_core:SeasonReset`) as it is on the live player (the higher of that and the snapshot's), so restoring a snapshot from before a season reset undoes it for that player and BSP-Core does not wipe them again.
+
+### Fixed
+- A put-off popup (Cancel) from before a player's reset or a season reset, left behind because its delete failed, no longer counts at a server switch or a poll.
+- `/invsync restore` now puts BSP-Core's reset marks back before it announces the restore (`InventoryRestoredEvent`), not after, so BSP-Core, which listens to that event, already sees them and does not wipe the restored player again.
+
 ## [0.8.3] - 2026-11-24
 
 ### Changed

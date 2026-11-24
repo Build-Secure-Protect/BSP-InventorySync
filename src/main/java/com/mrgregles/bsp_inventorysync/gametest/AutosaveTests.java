@@ -144,6 +144,8 @@ public class AutosaveTests {
         @Override public CompletableFuture<com.mrgregles.bsp_inventorysync.storage.Give> addGive(UUID player, byte[] item, String by) { return never(); }
         @Override public CompletableFuture<List<com.mrgregles.bsp_inventorysync.storage.Give>> gives(java.util.Collection<UUID> players) { return never(); }
         @Override public CompletableFuture<Boolean> takeGive(long id) { return never(); }
+        @Override public CompletableFuture<List<UUID>> extraKeys(String kind) { return never(); }
+        @Override public CompletableFuture<List<com.mrgregles.bsp_inventorysync.storage.Give>> allGives() { return never(); }
         @Override public CompletableFuture<Boolean> addGrave(com.mrgregles.bsp_inventorysync.storage.Grave grave) { return never(); }
         @Override public CompletableFuture<Optional<com.mrgregles.bsp_inventorysync.storage.Grave>> grave(UUID id) { return never(); }
         @Override public CompletableFuture<List<com.mrgregles.bsp_inventorysync.storage.Grave>> graves(UUID owner) { return never(); }

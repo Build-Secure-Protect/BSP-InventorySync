@@ -90,11 +90,17 @@ public interface SyncStore extends GraveStore {
     /** Removes an extra blob; false when there was none. */
     CompletableFuture<Boolean> deleteExtra(String kind, UUID key);
 
+    /** SR10: the keys of every extra blob of that kind (the season reset reads them, then deletes each in turn). */
+    CompletableFuture<List<UUID>> extraKeys(String kind);
+
     /** Queues one stack for a player (D23) and returns it with its id and time. */
     CompletableFuture<Give> addGive(UUID player, byte[] item, String by);
 
     /** The stacks waiting for these players, oldest first. */
     CompletableFuture<List<Give>> gives(Collection<UUID> players);
+
+    /** SR10: every waiting stack of every player, oldest first (the season reset). */
+    CompletableFuture<List<Give>> allGives();
 
     /** Removes a waiting stack: true for exactly one caller, the one that removed it, who then hands it over. */
     CompletableFuture<Boolean> takeGive(long id);

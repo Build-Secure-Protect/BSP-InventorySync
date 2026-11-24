@@ -283,8 +283,18 @@ public final class FastStore implements SyncStore {
     }
 
     @Override
+    public CompletableFuture<List<UUID>> extraKeys(String kind) {
+        return inner.extraKeys(kind);
+    }
+
+    @Override
     public CompletableFuture<Give> addGive(UUID player, byte[] item, String by) {
         return inner.addGive(player, item, by);
+    }
+
+    @Override
+    public CompletableFuture<List<Give>> allGives() {
+        return inner.allGives();
     }
 
     @Override

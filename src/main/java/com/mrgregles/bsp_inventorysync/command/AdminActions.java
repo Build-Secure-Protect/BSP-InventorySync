@@ -170,8 +170,10 @@ public final class AdminActions {
     }
 
     /**
-     * Applies one snapshot by version to an online player (a rollback). The player's {@code bsp_core:ResetAt} stays (PR18): restoring a
-     * snapshot from before a BSP-Core reset is how a mistaken reset is undone, and without the stamp BSP-Core would wipe them again.
+     * Applies one snapshot by version to an online player (a rollback). The player's {@code bsp_core:ResetAt} (PR18) and
+     * {@code bsp_core:SeasonReset} (SR10) stay: restoring a snapshot from before a BSP-Core reset or season reset is how it is undone for
+     * that player, and without the stamps BSP-Core would wipe them again. They are put back before the restore event is posted, which
+     * BSP-Core's listener reads.
      */
     public static CompletableFuture<List<String>> restore(SyncService service, MinecraftServer server, ServerPlayer player, long version) {
         return service.store().snapshot(player.getUUID(), version).thenCompose(found -> {
@@ -182,13 +184,19 @@ public final class AdminActions {
                         out.complete(List.of(player.getGameProfile().getName() + " has no snapshot v" + version));
                         return;
                     }
-                    // PR18: the player's reset stamp stays (an undo of a reset is a restore of a snapshot from before it, which has none)
+                    // PR18 and SR10: the player's reset stamps stay (an undo of a reset is a restore of a snapshot from before it, which has
+                    // older ones or none), put back before the restore event so BSP-Core's listener of it does not wipe them again
                     Long stamp = com.mrgregles.bsp_inventorysync.compat.PlayerReset.stamp(player);
+                    Integer season = com.mrgregles.bsp_inventorysync.compat.SeasonReset.stamp(player);
+                    Runnable keep = () -> {
+                        com.mrgregles.bsp_inventorysync.compat.PlayerReset.keepStamp(player, stamp);
+                        com.mrgregles.bsp_inventorysync.compat.SeasonReset.keepStamp(player, season);
+                    };
                     SyncService.Restored r;
                     try {
-                        r = service.restore(player, found.get(), false);
+                        r = service.restore(player, found.get(), false, keep);
                     } finally {
-                        com.mrgregles.bsp_inventorysync.compat.PlayerReset.keepStamp(player, stamp);
+                        keep.run(); // also when the restore failed part way
                     }
                     String rolled = "rolled " + player.getGameProfile().getName() + " back to v" + r.version() + " (" + found.get().cause().id() + " from " + r.sourceServer() + ")"
                             + (r.modules().failed().isEmpty() ? "" : "; failed modules: " + r.modules().failed());

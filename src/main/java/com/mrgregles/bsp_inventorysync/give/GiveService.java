@@ -392,7 +392,8 @@ public final class GiveService {
                         continue; // unread: tried again at the next poll, and nothing is handed over or asked meanwhile
                     }
                     known.add(id);
-                    if (read.join().isPresent()) {
+                    // PR18, SR10: a Cancel from before the player's reset (or a season reset) whose delete failed counts as none
+                    if (read.join().isPresent() && !com.mrgregles.bsp_inventorysync.compat.PlayerReset.forgotten(server, id, players.get(i), declinedAt(read.join().get()))) {
                         declined.add(id);
                     } else {
                         declined.remove(id);
@@ -434,20 +435,21 @@ public final class GiveService {
         UUID id = player.getUUID();
         busy.add(id);
         known.remove(id);
-        CompletableFuture<Boolean> flag = join
+        CompletableFuture<java.util.Optional<byte[]>> flag = join
                 ? store.deleteExtra(DECLINED, id).handle((x, e) -> {
                     if (e != null) {
                         BSPInventorySync.LOGGER.warn("BSP-InventorySync: could not clear {}'s Cancel at their join: {}", player.getGameProfile().getName(), e.toString());
                     }
-                    return false; // a join clears it here whatever the store says
+                    return java.util.Optional.<byte[]>empty(); // a join clears it here whatever the store says
                 })
-                : store.extra(DECLINED, id).thenApply(java.util.Optional::isPresent);
+                : store.extra(DECLINED, id);
         CompletableFuture<Void> done = new CompletableFuture<>();
-        flag.whenComplete((isDeclined, error) -> server.execute(() -> {
+        flag.whenComplete((found, error) -> server.execute(() -> {
             busy.remove(id);
             if (error == null) {
                 known.add(id);
-                if (Boolean.TRUE.equals(isDeclined)) {
+                // PR18, SR10: a Cancel from before the player's reset (or a season reset) whose delete failed counts as none
+                if (found.isPresent() && !com.mrgregles.bsp_inventorysync.compat.PlayerReset.forgotten(server, id, player, declinedAt(found.get()))) {
                     declined.add(id);
                 } else {
                     declined.remove(id);
@@ -465,6 +467,12 @@ public final class GiveService {
     public void forget(UUID player) {
         declined.remove(player);
         known.remove(player);
+    }
+
+    /** SR10: a season reset. Every player's Cancel is forgotten here, as {@link #forget} does for one. */
+    public void forgetAll() {
+        declined.clear();
+        known.clear();
     }
 
     public void loggedOut(UUID player) {

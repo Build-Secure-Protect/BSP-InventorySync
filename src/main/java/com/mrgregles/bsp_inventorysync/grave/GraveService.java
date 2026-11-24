@@ -573,15 +573,31 @@ public final class GraveService implements com.mrgregles.bsp_inventorysync.sync.
         return gone;
     }
 
+    /**
+     * SR10: a season reset. {@link #forgetLocal} for every owner with a grave kept on this server (riding on a snapshot or in
+     * this world's data). Returns how many were emptied. Server thread.
+     */
+    public int forgetLocalAll(long cut, byte[] emptyData) {
+        java.util.Set<UUID> owners = new java.util.LinkedHashSet<>(pending.keySet());
+        for (Grave g : local.gravesTouchedBefore(Long.MAX_VALUE, Integer.MAX_VALUE).join()) {
+            owners.add(g.owner());
+        }
+        int gone = 0;
+        for (UUID owner : owners) {
+            gone += forgetLocal(owner, cut, emptyData);
+        }
+        return gone;
+    }
+
     private void forgotten(Grave g) {
         access.removeBlockOf(g);
         BSPInventorySync.LOGGER.warn("BSP-InventorySync: {}'s grave {} kept on this server emptied at their reset; it held {}{}", g.ownerName(), g.shortId(), describe(g),
                 g.xp() > 0 ? " and " + g.xp() + " xp" : "");
     }
 
-    /** PR18: removes the grave's headstone if it stands on this server (a reset player's grave, emptied in the database). */
-    public void removeBlock(Grave g) {
-        access.removeBlockOf(g);
+    /** PR18: removes the grave's headstone if it stands on this server (a reset player's grave, emptied in the database); true when it did. */
+    public boolean removeBlock(Grave g) {
+        return access.removeBlockOf(g);
     }
 
     public MinecraftServer server() {

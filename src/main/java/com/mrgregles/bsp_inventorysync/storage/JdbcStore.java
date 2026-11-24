@@ -484,6 +484,26 @@ public final class JdbcStore implements SyncStore {
     }
 
     @Override
+    public CompletableFuture<List<UUID>> extraKeys(String kind) {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("SELECT id FROM " + extra + " WHERE kind = ?")) {
+                ps.setString(1, kind);
+                List<UUID> out = new ArrayList<>();
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        try {
+                            out.add(UUID.fromString(rs.getString(1)));
+                        } catch (IllegalArgumentException ignored) {
+                            // not an id: skipped
+                        }
+                    }
+                }
+                return out;
+            }
+        });
+    }
+
+    @Override
     public CompletableFuture<Give> addGive(UUID player, byte[] item, String by) {
         return run(() -> {
             long now = System.currentTimeMillis();
@@ -518,6 +538,21 @@ public final class JdbcStore implements SyncStore {
                 for (int i = 0; i < ids.size(); i++) {
                     ps.setString(i + 1, ids.get(i).toString());
                 }
+                List<Give> out = new ArrayList<>();
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        out.add(new Give(rs.getLong(1), UUID.fromString(rs.getString(2)), rs.getBytes(3), rs.getString(4), rs.getLong(5)));
+                    }
+                }
+                return out;
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<List<Give>> allGives() {
+        return run(() -> {
+            try (PreparedStatement ps = conn().prepareStatement("SELECT id, player, item, given_by, created_at FROM " + gives + " ORDER BY id")) {
                 List<Give> out = new ArrayList<>();
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {

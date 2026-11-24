@@ -785,16 +785,18 @@ public final class GraveAccess {
     // ------------------------------------------------------------------ the block
 
     /** Removes a grave's block when it stands on this server and is loaded (an emptied grave). */
-    void removeBlockOf(Grave g) {
+    boolean removeBlockOf(Grave g) {
         if (!g.placed() || !g.serverId().equals(graves.serverIdNow())) {
-            return;
+            return false;
         }
         ResourceLocation dim = ResourceLocation.tryParse(g.dimension());
         ServerLevel level = dim == null ? null : server.getLevel(ResourceKey.create(Registries.DIMENSION, dim));
         BlockPos pos = new BlockPos(g.x(), g.y(), g.z());
         if (level != null && level.hasChunkAt(pos) && level.getBlockEntity(pos) instanceof GraveBlockEntity be && g.id().equals(be.graveId())) {
             removeBlock(level, pos);
+            return true;
         }
+        return false;
     }
 
     /** Whether a placed grave of this server has lost its block (a crash rolled the world back): it is then recovered at once. */

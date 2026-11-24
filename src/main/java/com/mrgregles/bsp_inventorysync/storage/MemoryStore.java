@@ -224,6 +224,11 @@ public final class MemoryStore implements SyncStore {
     }
 
     @Override
+    public CompletableFuture<List<UUID>> extraKeys(String kind) {
+        return done(extras.keySet().stream().filter(k -> k.kind().equals(kind)).map(ExtraKey::key).toList());
+    }
+
+    @Override
     public CompletableFuture<Give> addGive(UUID player, byte[] item, String by) {
         Give g = new Give(nextGive.getAndIncrement(), player, item.clone(), by, clock.getAsLong());
         gives.put(g.id(), g);
@@ -233,6 +238,11 @@ public final class MemoryStore implements SyncStore {
     @Override
     public CompletableFuture<List<Give>> gives(java.util.Collection<UUID> players) {
         return done(gives.values().stream().filter(g -> players.contains(g.player())).sorted(Comparator.comparingLong(Give::id)).toList());
+    }
+
+    @Override
+    public CompletableFuture<List<Give>> allGives() {
+        return done(gives.values().stream().sorted(Comparator.comparingLong(Give::id)).toList());
     }
 
     @Override
